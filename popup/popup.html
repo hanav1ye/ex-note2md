@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>note → Markdown</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>note → Markdown</h1>
+    <p class="hint">note 記事を Markdown に変換します（画像のダウンロードは行いません）。</p>
+  </header>
+
+  <fieldset class="option-group">
+    <legend>変換元</legend>
+    <div class="segmented" role="radiogroup" aria-label="変換元">
+      <label class="segment">
+        <input type="radio" name="sourceMode" value="tab" checked />
+        <span>現在のタブ</span>
+      </label>
+      <label class="segment">
+        <input type="radio" name="sourceMode" value="url" />
+        <span>URL を指定</span>
+      </label>
+    </div>
+    <div id="urlField" class="url-field hidden">
+      <label for="articleUrl">記事 URL</label>
+      <div class="url-picker-row">
+        <input
+          id="articleUrl"
+          type="url"
+          inputmode="url"
+          placeholder="https://note.com/.../n/..."
+          spellcheck="false"
+        />
+        <button id="pickUrlBtn" type="button" class="pick-url-button">選択する</button>
+        <button id="pickMultiBtn" type="button" class="pick-url-button">複数選択</button>
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="option-group">
+    <legend>タグ（候補から複数選択）</legend>
+    <div id="tagSelector" class="tag-selector"></div>
+    <p id="tagSelectorHint" class="tag-selector-hint">
+      候補タグが未設定です。オプション画面で登録してください。
+    </p>
+  </fieldset>
+
+  <fieldset class="option-group">
+    <legend>変換後</legend>
+    <div class="segmented" role="radiogroup" aria-label="変換後の操作">
+      <label class="segment">
+        <input type="radio" name="outputMode" value="copy" checked />
+        <span>コピー</span>
+      </label>
+      <label class="segment">
+        <input type="radio" name="outputMode" value="download" />
+        <span>ダウンロード</span>
+      </label>
+    </div>
+    <div id="downloadLocationField" class="download-location hidden">
+      <label for="downloadPreset">保存先プリセット</label>
+      <select id="downloadPreset">
+        <option value="preset1">プリセット1</option>
+        <option value="preset2">プリセット2</option>
+        <option value="preset3">プリセット3</option>
+      </select>
+      <button id="openOptionsBtn" type="button" class="subtle-button">プリセットを設定</button>
+    </div>
+  </fieldset>
+
+  <div id="status" class="status" role="status"></div>
+  <div id="splash" class="splash hidden" role="alert" aria-live="assertive">
+    <div id="splashMark" class="splash-mark">✓</div>
+    <div class="splash-text">
+      <div id="splashTitle" class="splash-title">ダウンロード完了</div>
+      <div id="splashMessage" class="splash-message"></div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="convertBtn" type="button">変換</button>
+  </div>
+
+  <script src="../lib/noteToMarkdown.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
