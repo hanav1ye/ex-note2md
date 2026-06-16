@@ -1,3 +1,4 @@
+// note.com 上で動作: 記事変換・リンク選択・複数一括ダウンロード
 let pickModeActive = false;
 let hoverTarget = null;
 let previousCursor = "";

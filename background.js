@@ -1,3 +1,4 @@
+// Service Worker: プリセット保存先フォルダへの .md 書き込みと重複チェック
 const PRESET_IDS = ["preset1", "preset2", "preset3"];
 const DEFAULT_PRESET_CONFIGS = {
   preset1: { name: "プリセット1", folderLabel: "", hasFolder: false },

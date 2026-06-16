@@ -1,3 +1,4 @@
+// 拡張機能ポップアップ: 変換元・出力先の選択と変換実行
 const $ = (id) => document.getElementById(id);
 
 const statusEl = $("status");

@@ -1,3 +1,4 @@
+// オプション画面: 保存先プリセット（最大3つ）とタグ候補の管理
 const PRESET_IDS = ["preset1", "preset2", "preset3"];
 const STORAGE_KEYS = ["presetConfigs", "presetTagCandidates"];
 const DB_NAME = "noteToMarkdownPresets";
