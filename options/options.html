@@ -1,75 +1,111 @@
 <!DOCTYPE html>
-<!-- オプション画面: 保存先プリセットとタグ候補の設定 -->
+<!-- オプション画面: 保存先・タグ・Obsidian の設定 -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>保存先プリセット設定</title>
+  <title>note to Markdown — 設定</title>
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
   <main class="container">
-    <h1>保存先プリセット設定</h1>
-    <p class="hint">名前は自由に設定できます。ダウンロードは保存先フォルダ設定が必須です。</p>
+    <h1 class="page-title">設定</h1>
+    <p class="hint page-intro">
+      popup から変換する際の保存先・タグ・Obsidian 向けオプションを管理します。
+    </p>
 
-    <section class="preset-list">
-      <article class="preset-card" data-preset-id="preset1">
-        <h2>プリセット1</h2>
-        <label>
-          表示名
-          <input id="preset1Name" type="text" maxlength="40" placeholder="例: 仕事メモ" spellcheck="false" />
-        </label>
-        <div class="folder-row">
-          <span id="preset1Folder" class="folder-label">未設定（ダウンロード直下）</span>
-          <button id="preset1Pick" type="button">フォルダを選択</button>
-          <button id="preset1Clear" type="button" class="ghost">解除</button>
-        </div>
-      </article>
+    <section class="settings-section" aria-labelledby="presetSectionTitle">
+      <h2 id="presetSectionTitle" class="settings-section-title">保存先プリセット設定</h2>
+      <p class="hint inline">
+        ダウンロードを使うには、いずれかのプリセットで保存先フォルダを選択してください（必須）。
+        Downloads フォルダ直下への保存はできません。サブフォルダ（例: Downloads\note-markdown）を指定してください。
+      </p>
+      <div class="preset-list">
+        <article class="preset-card" data-preset-id="preset1">
+          <h3>プリセット1</h3>
+          <label>
+            表示名
+            <input id="preset1Name" type="text" maxlength="40" placeholder="例: 仕事メモ" spellcheck="false" />
+          </label>
+          <div class="folder-row">
+            <span id="preset1Folder" class="folder-label">未設定（フォルダ未選択）</span>
+            <button id="preset1Pick" type="button">フォルダを選択</button>
+            <button id="preset1Clear" type="button" class="ghost">解除</button>
+          </div>
+        </article>
 
-      <article class="preset-card" data-preset-id="preset2">
-        <h2>プリセット2</h2>
-        <label>
-          表示名
-          <input id="preset2Name" type="text" maxlength="40" placeholder="例: Obsidian Inbox" spellcheck="false" />
-        </label>
-        <div class="folder-row">
-          <span id="preset2Folder" class="folder-label">未設定（ダウンロード直下）</span>
-          <button id="preset2Pick" type="button">フォルダを選択</button>
-          <button id="preset2Clear" type="button" class="ghost">解除</button>
-        </div>
-      </article>
+        <article class="preset-card" data-preset-id="preset2">
+          <h3>プリセット2</h3>
+          <label>
+            表示名
+            <input id="preset2Name" type="text" maxlength="40" placeholder="例: Obsidian Inbox" spellcheck="false" />
+          </label>
+          <div class="folder-row">
+            <span id="preset2Folder" class="folder-label">未設定（フォルダ未選択）</span>
+            <button id="preset2Pick" type="button">フォルダを選択</button>
+            <button id="preset2Clear" type="button" class="ghost">解除</button>
+          </div>
+        </article>
 
-      <article class="preset-card" data-preset-id="preset3">
-        <h2>プリセット3</h2>
-        <label>
-          表示名
-          <input id="preset3Name" type="text" maxlength="40" placeholder="例: 公開記事" spellcheck="false" />
-        </label>
-        <div class="folder-row">
-          <span id="preset3Folder" class="folder-label">未設定（ダウンロード直下）</span>
-          <button id="preset3Pick" type="button">フォルダを選択</button>
-          <button id="preset3Clear" type="button" class="ghost">解除</button>
-        </div>
-      </article>
+        <article class="preset-card" data-preset-id="preset3">
+          <h3>プリセット3</h3>
+          <label>
+            表示名
+            <input id="preset3Name" type="text" maxlength="40" placeholder="例: 公開記事" spellcheck="false" />
+          </label>
+          <div class="folder-row">
+            <span id="preset3Folder" class="folder-label">未設定（フォルダ未選択）</span>
+            <button id="preset3Pick" type="button">フォルダを選択</button>
+            <button id="preset3Clear" type="button" class="ghost">解除</button>
+          </div>
+        </article>
+      </div>
     </section>
 
-    <section class="preset-card tag-candidates-card">
-      <h2>タグ候補（popupで複数選択）</h2>
+    <section class="settings-section" aria-labelledby="tagSectionTitle">
+      <h2 id="tagSectionTitle" class="settings-section-title">タグ候補</h2>
       <p class="hint inline">
-        事前に使うタグを1つずつ登録しておくと、popupではチェックで複数選択できます。
+        事前に使うタグを1つずつ登録しておくと、popup ではチェックで複数選択できます。
       </p>
-      <div class="tag-add-row">
-        <input
-          id="newTagInput"
-          type="text"
-          maxlength="64"
-          placeholder="例: 学習メモ"
-          spellcheck="false"
-        />
-        <button id="addTagBtn" type="button">追加</button>
+      <div class="settings-card">
+        <div class="tag-add-row">
+          <input
+            id="newTagInput"
+            type="text"
+            maxlength="64"
+            placeholder="例: 学習メモ"
+            spellcheck="false"
+          />
+          <button id="addTagBtn" type="button">追加</button>
+        </div>
+        <div id="tagCandidateList" class="tag-candidate-list"></div>
+        <p id="tagCandidateEmptyHint" class="hint inline empty-hint">タグ候補はまだありません。</p>
       </div>
-      <div id="tagCandidateList" class="tag-candidate-list"></div>
-      <p id="tagCandidateEmptyHint" class="hint inline">タグ候補はまだありません。</p>
+    </section>
+
+    <section class="settings-section" aria-labelledby="obsidianSectionTitle">
+      <h2 id="obsidianSectionTitle" class="settings-section-title">Obsidianで活用する</h2>
+      <div class="settings-card">
+        <label class="toggle-row">
+          <input id="obsidianLinkify" type="checkbox" />
+          <span>Obsidianリンク化する</span>
+        </label>
+        <p class="hint inline">
+          ON にすると、下記ワードが本文中で [[単語]] に変換されます。
+        </p>
+        <div class="tag-add-row">
+          <input
+            id="newObsidianWordInput"
+            type="text"
+            maxlength="64"
+            placeholder="例: Obsidian"
+            spellcheck="false"
+          />
+          <button id="addObsidianWordBtn" type="button">追加</button>
+        </div>
+        <div id="obsidianWordList" class="tag-candidate-list"></div>
+        <p id="obsidianWordEmptyHint" class="hint inline empty-hint">リンク化ワードはまだありません。</p>
+      </div>
     </section>
 
     <div id="status" class="status" role="status"></div>

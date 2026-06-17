@@ -6,6 +6,7 @@
   --card: #ffffff;
   --border: #d8e5ee;
   --accent: #7eb8d4;
+  --section-title: #5a96b3;
 }
 
 * {
@@ -25,20 +26,50 @@ body {
   padding: 20px;
 }
 
-h1 {
+.page-title {
   margin: 0 0 6px;
   font-size: 22px;
+}
+
+.page-intro {
+  margin-bottom: 20px;
 }
 
 .hint {
   margin: 0 0 16px;
   color: var(--muted);
   font-size: 13px;
+  line-height: 1.5;
 }
 
 .hint.inline {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   font-size: 12px;
+}
+
+.hint.empty-hint {
+  margin: 8px 0 0;
+}
+
+.settings-section {
+  margin-bottom: 28px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-section:last-of-type {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-section-title {
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--accent);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--section-title);
 }
 
 .preset-list {
@@ -46,14 +77,15 @@ h1 {
   gap: 12px;
 }
 
-.preset-card {
+.preset-card,
+.settings-card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
 }
 
-.preset-card h2 {
+.preset-card h3 {
   margin: 0 0 8px;
   font-size: 15px;
 }
@@ -73,23 +105,6 @@ input[type="text"] {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 13px;
-}
-
-textarea {
-  display: block;
-  width: 100%;
-  margin-top: 4px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-  font-family: inherit;
-  resize: vertical;
-}
-
-textarea:focus {
-  outline: 2px solid #cce7f3;
-  border-color: var(--accent);
 }
 
 input[type="text"]:focus {
@@ -130,14 +145,26 @@ button.ghost {
 }
 
 .status {
-  margin-top: 12px;
+  margin-top: 16px;
   min-height: 1.2em;
   font-size: 12px;
   color: #0f766e;
 }
 
-.tag-candidates-card {
-  margin-top: 12px;
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.toggle-row input {
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .tag-add-row {

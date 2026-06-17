@@ -39,31 +39,72 @@ body {
   background: linear-gradient(160deg, var(--sky-50) 0%, #ffffff 42%, var(--pink-50) 100%);
 }
 
-header h1 {
+.popup-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.popup-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.popup-header h1 {
   margin: 0 0 4px;
   font-size: 16px;
   color: var(--text-heading);
   letter-spacing: 0.01em;
 }
 
-.hint {
-  margin: 0 0 12px;
+.popup-header .hint {
+  margin: 0;
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.4;
 }
 
-.option-group {
-  margin: 0 0 12px;
+.settings-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--sky-600);
+  box-shadow: none;
+  cursor: pointer;
 }
 
-.option-group legend {
-  margin-bottom: 6px;
-  padding: 0;
-  font-size: 12px;
-  font-weight: 600;
+.settings-button:hover:not(:disabled) {
+  background: var(--sky-50);
+  color: var(--pink-600);
+}
+
+.settings-button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.option-group {
+  margin: 0 0 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.option-group-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--pink-600);
 }
 
@@ -117,7 +158,7 @@ header h1 {
 }
 
 .url-field {
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 .url-field.hidden {
@@ -128,7 +169,8 @@ header h1 {
   display: none !important;
 }
 
-.url-field label {
+.url-field label,
+.download-location label {
   display: block;
   margin-bottom: 4px;
   font-size: 12px;
@@ -136,7 +178,8 @@ header h1 {
   color: var(--sky-600);
 }
 
-.url-field input {
+.url-field input,
+.download-location select {
   width: 100%;
   padding: 7px 8px;
   border: 1px solid var(--border);
@@ -144,6 +187,7 @@ header h1 {
   font-size: 12px;
   font-family: inherit;
   background: var(--surface);
+  color: var(--text);
 }
 
 .url-picker-row {
@@ -169,66 +213,21 @@ header h1 {
 
 .pick-url-button:hover:not(:disabled) {
   background: var(--sky-50);
-  box-shadow: none;
-  transform: none;
 }
 
-.url-field input:focus {
-  outline: 2px solid var(--focus);
-  outline-offset: 0;
-  border-color: var(--sky-400);
-}
-
-.download-location {
-  margin-top: 8px;
-}
-
-.download-location.hidden {
-  display: none;
-}
-
-.download-location label {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--sky-600);
-}
-
-.download-location select {
-  width: 100%;
-  padding: 7px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px;
-  font-family: inherit;
-  background: var(--surface);
-  color: var(--text);
-}
-
+.url-field input:focus,
 .download-location select:focus {
   outline: 2px solid var(--focus);
   outline-offset: 0;
   border-color: var(--sky-400);
 }
 
-.subtle-button {
-  margin-top: 8px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #ffffff;
-  color: var(--sky-600);
-  font-size: 12px;
-  font-weight: 600;
-  box-shadow: none;
+.download-location {
+  margin-top: 10px;
 }
 
-.subtle-button:hover:not(:disabled) {
-  box-shadow: none;
-  transform: none;
-  background: var(--sky-50);
+.download-location.hidden {
+  display: none;
 }
 
 .tag-selector {
@@ -264,11 +263,20 @@ header h1 {
   margin: 8px 0 0;
   color: var(--text-muted);
   font-size: 12px;
+  line-height: 1.4;
+}
+
+.download-preset-hint {
+  margin: 8px 0 0;
+  color: var(--error);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .actions {
   display: flex;
   gap: 8px;
+  margin-top: 4px;
 }
 
 button {

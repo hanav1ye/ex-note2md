@@ -8,6 +8,12 @@ const DEFAULT_PRESET_CONFIGS = {
 const DB_NAME = "noteToMarkdownPresets";
 const DB_STORE = "directoryHandles";
 
+const PRESET_FOLDER_REQUIRED_ERROR =
+  "ダウンロードには保存先プリセットのフォルダ設定が必要です。設定（歯車）から「保存先プリセット設定」でフォルダを選択してください。";
+
+const presetDisplayName = (presetId, config) =>
+  config?.name?.trim() || `プリセット${PRESET_IDS.indexOf(presetId) + 1}`;
+
 const filenameFromNoteUrl = (url) => {
   try {
     const parsed = new URL(url);
@@ -58,23 +64,29 @@ const getPresetHandle = async (presetId) => {
 };
 
 const getPresetDirectoryHandle = async (downloadPreset) => {
+  const selectedPreset = PRESET_IDS.includes(downloadPreset) ? downloadPreset : "preset1";
   const stored = await chrome.storage.local.get(["presetConfigs"]);
   const presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
-
-  const selectedPreset = PRESET_IDS.includes(downloadPreset) ? downloadPreset : "preset1";
   const selectedConfig = presetConfigs[selectedPreset] ?? DEFAULT_PRESET_CONFIGS[selectedPreset];
+
   if (!selectedConfig.hasFolder) {
-    throw new Error("保存先フォルダが未設定です。オプションでフォルダを設定してください。");
+    throw new Error(
+      `「${presetDisplayName(selectedPreset, selectedConfig)}」に保存先フォルダが設定されていません。${PRESET_FOLDER_REQUIRED_ERROR}`
+    );
   }
 
   const handle = await getPresetHandle(selectedPreset);
   if (!handle) {
-    throw new Error("保存先フォルダが見つかりません。オプションから再設定してください。");
+    throw new Error(
+      `「${presetDisplayName(selectedPreset, selectedConfig)}」の保存先フォルダが見つかりません。設定画面からフォルダを再選択してください。`
+    );
   }
 
   const permission = await handle.queryPermission({ mode: "readwrite" });
   if (permission !== "granted") {
-    throw new Error("保存先フォルダの権限がありません。オプションから再設定してください。");
+    throw new Error(
+      `「${presetDisplayName(selectedPreset, selectedConfig)}」の保存先フォルダへのアクセス権限がありません。設定画面からフォルダを再選択してください。`
+    );
   }
 
   return handle;

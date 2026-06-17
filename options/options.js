@@ -1,6 +1,6 @@
 // オプション画面: 保存先プリセット（最大3つ）とタグ候補の管理
 const PRESET_IDS = ["preset1", "preset2", "preset3"];
-const STORAGE_KEYS = ["presetConfigs", "presetTagCandidates"];
+const STORAGE_KEYS = ["presetConfigs", "presetTagCandidates", "presetObsidianLinkWords", "obsidianLinkify"];
 const DB_NAME = "noteToMarkdownPresets";
 const DB_STORE = "directoryHandles";
 
@@ -10,6 +10,11 @@ const newTagInputEl = $("newTagInput");
 const addTagBtn = $("addTagBtn");
 const tagCandidateListEl = $("tagCandidateList");
 const tagCandidateEmptyHintEl = $("tagCandidateEmptyHint");
+const newObsidianWordInputEl = $("newObsidianWordInput");
+const addObsidianWordBtn = $("addObsidianWordBtn");
+const obsidianWordListEl = $("obsidianWordList");
+const obsidianWordEmptyHintEl = $("obsidianWordEmptyHint");
+const obsidianLinkifyEl = $("obsidianLinkify");
 
 const DEFAULT_PRESET_CONFIGS = {
   preset1: { name: "プリセット1", folderLabel: "", hasFolder: false },
@@ -19,6 +24,8 @@ const DEFAULT_PRESET_CONFIGS = {
 
 let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
 let presetTagCandidates = [];
+let presetObsidianLinkWords = [];
+let obsidianLinkifyEnabled = false;
 
 const setStatus = (message) => {
   statusEl.textContent = message;
@@ -42,6 +49,19 @@ const sanitizeTagCandidates = (candidates) => {
   const normalized = [];
   (Array.isArray(candidates) ? candidates : []).forEach((candidate) => {
     const value = normalizeTagValue(candidate);
+    if (value && !normalized.includes(value)) {
+      normalized.push(value);
+    }
+  });
+  return normalized;
+};
+
+const normalizeObsidianWordValue = (value) => String(value).trim();
+
+const sanitizeObsidianLinkWords = (words) => {
+  const normalized = [];
+  (Array.isArray(words) ? words : []).forEach((word) => {
+    const value = normalizeObsidianWordValue(word);
     if (value && !normalized.includes(value)) {
       normalized.push(value);
     }
@@ -85,7 +105,7 @@ const deleteHandle = async (presetId) => {
 const render = () => {
   PRESET_IDS.forEach((id, index) => {
     const config = presetConfigs[id];
-    const title = document.querySelector(`[data-preset-id="${id}"] h2`);
+    const title = document.querySelector(`[data-preset-id="${id}"] h3`);
     const nameInput = $(`${id}Name`);
     const folderLabel = $(`${id}Folder`);
     if (title) {
@@ -97,7 +117,7 @@ const render = () => {
     if (folderLabel) {
       folderLabel.textContent = config.hasFolder
         ? `設定済み: ${config.folderLabel || "フォルダ名不明"}`
-        : "未設定（このプリセットでは保存不可）";
+        : "未設定（ダウンロード不可 — フォルダを選択してください）";
     }
   });
 
@@ -128,16 +148,54 @@ const render = () => {
   if (tagCandidateEmptyHintEl) {
     tagCandidateEmptyHintEl.style.display = presetTagCandidates.length > 0 ? "none" : "block";
   }
+
+  if (obsidianWordListEl) {
+    obsidianWordListEl.innerHTML = "";
+    presetObsidianLinkWords.forEach((word) => {
+      const item = document.createElement("div");
+      item.className = "tag-item";
+
+      const text = document.createElement("span");
+      text.textContent = word;
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.textContent = "削除";
+      removeBtn.addEventListener("click", async () => {
+        presetObsidianLinkWords = presetObsidianLinkWords.filter((value) => value !== word);
+        await persistConfigs();
+        render();
+        setStatus(`ワード「${word}」を削除しました。`);
+      });
+
+      item.append(text, removeBtn);
+      obsidianWordListEl.appendChild(item);
+    });
+  }
+
+  if (obsidianWordEmptyHintEl) {
+    obsidianWordEmptyHintEl.style.display = presetObsidianLinkWords.length > 0 ? "none" : "block";
+  }
 };
 
 const persistConfigs = async () => {
-  await chrome.storage.local.set({ presetConfigs, presetTagCandidates });
+  await chrome.storage.local.set({
+    presetConfigs,
+    presetTagCandidates,
+    presetObsidianLinkWords,
+    obsidianLinkify: obsidianLinkifyEnabled,
+  });
 };
 
 const loadConfigs = async () => {
   const stored = await chrome.storage.local.get(STORAGE_KEYS);
   presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
   presetTagCandidates = sanitizeTagCandidates(stored.presetTagCandidates ?? []);
+  presetObsidianLinkWords = sanitizeObsidianLinkWords(stored.presetObsidianLinkWords ?? []);
+  obsidianLinkifyEnabled = Boolean(stored.obsidianLinkify);
+  if (obsidianLinkifyEl) {
+    obsidianLinkifyEl.checked = obsidianLinkifyEnabled;
+  }
   render();
 };
 
@@ -213,6 +271,38 @@ const bindEvents = () => {
       event.preventDefault();
       addTagBtn?.click();
     }
+  });
+
+  addObsidianWordBtn?.addEventListener("click", async () => {
+    const value = normalizeObsidianWordValue(newObsidianWordInputEl?.value ?? "");
+    if (!value) {
+      setStatus("ワードを入力してください。");
+      return;
+    }
+    if (presetObsidianLinkWords.includes(value)) {
+      setStatus("同じワードは既に登録されています。");
+      return;
+    }
+    presetObsidianLinkWords = [...presetObsidianLinkWords, value];
+    await persistConfigs();
+    if (newObsidianWordInputEl) {
+      newObsidianWordInputEl.value = "";
+    }
+    render();
+    setStatus(`ワード「${value}」を追加しました。`);
+  });
+
+  newObsidianWordInputEl?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addObsidianWordBtn?.click();
+    }
+  });
+
+  obsidianLinkifyEl?.addEventListener("change", async () => {
+    obsidianLinkifyEnabled = Boolean(obsidianLinkifyEl.checked);
+    await persistConfigs();
+    setStatus(obsidianLinkifyEnabled ? "Obsidianリンク化を有効にしました。" : "Obsidianリンク化を無効にしました。");
   });
 };
 

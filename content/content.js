@@ -3,7 +3,12 @@ let pickModeActive = false;
 let hoverTarget = null;
 let previousCursor = "";
 let pickedArticleUrl = "";
-let pickContext = { outputMode: "copy", downloadPreset: "preset1", tags: [] };
+let pickContext = {
+  outputMode: "copy",
+  downloadPreset: "preset1",
+  tags: [],
+  obsidianLinkify: false,
+};
 let multiPickModeActive = false;
 let multiPickedArticles = [];
 let multiPanelEl = null;
@@ -101,6 +106,70 @@ const getAnchorTitle = (anchor) =>
     .replace(/\s+/g, " ")
     .trim() || "（タイトル不明）";
 
+const isExcludedListTitle = (title) => title === "プロフィール" || title === "仕事依頼";
+
+const getArticleListRoot = () =>
+  Array.from(document.querySelectorAll("div")).find(
+    (el) =>
+      el.classList.contains("mx-auto") &&
+      el.classList.contains("w-full") &&
+      el.classList.contains("max-w-[var(--size-content)]")
+  ) ?? null;
+
+const getRenderedArticleCandidates = () => {
+  const listRoot = getArticleListRoot();
+  if (!listRoot) {
+    return [];
+  }
+
+  const articleAnchors = Array.from(listRoot.querySelectorAll("a[href]")).filter((anchor) => {
+    const href = anchor.getAttribute("href") ?? "";
+    if (!isNoteArticleUrl(href)) {
+      return false;
+    }
+    const title = getAnchorTitle(anchor);
+    if (isExcludedListTitle(title)) {
+      return false;
+    }
+    const rect = anchor.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  });
+
+  return articleAnchors
+    .map((anchor) => ({
+      anchor,
+      url: new URL(anchor.getAttribute("href"), location.origin).toString(),
+      title: getAnchorTitle(anchor),
+      top: anchor.getBoundingClientRect().top,
+      left: anchor.getBoundingClientRect().left,
+    }))
+    .sort((a, b) => (a.top === b.top ? a.left - b.left : a.top - b.top));
+};
+
+const addVisibleArticlesToSelection = () => {
+  const candidates = getRenderedArticleCandidates();
+  if (candidates.length === 0) {
+    showPageToast("一覧内に選択可能な記事リンクが見つかりません。", "error");
+    return;
+  }
+
+  let addedCount = 0;
+  candidates.forEach((candidate) => {
+    if (!multiPickedArticles.some((item) => item.url === candidate.url)) {
+      multiPickedArticles.push({ url: candidate.url, title: candidate.title });
+      addedCount += 1;
+    }
+  });
+
+  if (addedCount === 0) {
+    showPageToast("一覧の記事はすでに選択済みです。", "skip");
+    return;
+  }
+
+  renderMultiPanel();
+  showPageToast(`一覧から ${addedCount}件 追加しました。`, "ok");
+};
+
 const removeMultiPanel = () => {
   multiPanelEl?.remove();
   multiPanelEl = null;
@@ -172,6 +241,23 @@ const renderMultiPanel = () => {
     runBtn.id = "ntm-multi-run";
     multiPanelEl.appendChild(runBtn);
 
+    const selectVisibleBtn = document.createElement("button");
+    selectVisibleBtn.type = "button";
+    selectVisibleBtn.textContent = "一覧を全選択";
+    selectVisibleBtn.style.border = "1px solid #e2cad4";
+    selectVisibleBtn.style.padding = "6px 10px";
+    selectVisibleBtn.style.borderRadius = "8px";
+    selectVisibleBtn.style.fontSize = "12px";
+    selectVisibleBtn.style.fontWeight = "600";
+    selectVisibleBtn.style.background = "#fff";
+    selectVisibleBtn.style.color = "#744257";
+    selectVisibleBtn.style.cursor = "pointer";
+    selectVisibleBtn.addEventListener("click", () => {
+      addVisibleArticlesToSelection();
+    });
+    selectVisibleBtn.id = "ntm-multi-select-visible";
+    multiPanelEl.appendChild(selectVisibleBtn);
+
     const clearBtn = document.createElement("button");
     clearBtn.type = "button";
     clearBtn.textContent = "解除";
@@ -227,6 +313,11 @@ const renderMultiPanel = () => {
   if (runBtn) {
     runBtn.disabled = multiRunning || multiPickedArticles.length === 0;
     runBtn.textContent = multiRunning ? "実行中..." : "実行";
+  }
+
+  const selectVisibleBtn = multiPanelEl.querySelector("#ntm-multi-select-visible");
+  if (selectVisibleBtn) {
+    selectVisibleBtn.disabled = multiRunning;
   }
 
   const listEl = multiPanelEl.querySelector("#ntm-multi-list");
@@ -397,6 +488,17 @@ const checkNoteFileExists = async (url) => {
   return response;
 };
 
+const getConversionOptions = async () => {
+  const stored = await chrome.storage.local.get(["presetObsidianLinkWords"]);
+  return {
+    tags: normalizeUserTags(pickContext.tags),
+    obsidianLinkify: Boolean(pickContext.obsidianLinkify),
+    obsidianLinkWords: Array.isArray(stored.presetObsidianLinkWords)
+      ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
+      : [],
+  };
+};
+
 const convertPickedArticle = async (url, options = {}) => {
   if (!url) {
     throw new Error("記事URLが選択されていません。");
@@ -431,9 +533,8 @@ const convertPickedArticle = async (url, options = {}) => {
   }
   const html = await response.text();
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const result = NoteToMarkdown.convertNotePageToMarkdown(doc, url, {
-    tags: normalizeUserTags(pickContext.tags),
-  });
+  const conversionOptions = await getConversionOptions();
+  const result = NoteToMarkdown.convertNotePageToMarkdown(doc, url, conversionOptions);
 
   if (pickContext.outputMode === "download") {
     const downloadResponse = await chrome.runtime.sendMessage({
@@ -566,6 +667,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       outputMode: message.outputMode === "download" ? "download" : "copy",
       downloadPreset: String(message.downloadPreset ?? "preset1"),
       tags: normalizeUserTags(message.tags),
+      obsidianLinkify: Boolean(message.obsidianLinkify),
     };
     startPickMode();
     sendResponse({ ok: true });
@@ -577,6 +679,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       outputMode: "download",
       downloadPreset: String(message.downloadPreset ?? "preset1"),
       tags: normalizeUserTags(message.tags),
+      obsidianLinkify: Boolean(message.obsidianLinkify),
     };
     startMultiPickMode();
     sendResponse({ ok: true });
@@ -626,15 +729,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  try {
-    const result = NoteToMarkdown.convertNotePageToMarkdown(document, location.href, {
-      tags: message.tags,
-    });
-    sendResponse({ ok: true, title: result.title, markdown: result.markdown });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "変換に失敗しました。";
-    sendResponse({ ok: false, error: errorMessage });
-  }
+  void (async () => {
+    try {
+      const stored = await chrome.storage.local.get(["presetObsidianLinkWords"]);
+      const result = NoteToMarkdown.convertNotePageToMarkdown(document, location.href, {
+        tags: message.tags,
+        obsidianLinkify: Boolean(message.obsidianLinkify),
+        obsidianLinkWords: Array.isArray(stored.presetObsidianLinkWords)
+          ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
+          : [],
+      });
+      sendResponse({ ok: true, title: result.title, markdown: result.markdown });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "変換に失敗しました。";
+      sendResponse({ ok: false, error: errorMessage });
+    }
+  })();
 
   return true;
 });

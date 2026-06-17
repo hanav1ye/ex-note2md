@@ -1,15 +1,20 @@
 // 拡張機能ポップアップ: 変換元・出力先の選択と変換実行
+const FOLDER_PRESET_IDS = ["preset1", "preset2", "preset3"];
+const DOWNLOAD_PRESET_IDS = [...FOLDER_PRESET_IDS];
+const PRESET_FOLDER_REQUIRED_ERROR =
+  "ダウンロードには保存先プリセットのフォルダ設定が必要です。設定（歯車）から「保存先プリセット設定」でフォルダを選択してください。";
 const $ = (id) => document.getElementById(id);
 
 const statusEl = $("status");
 const convertBtn = $("convertBtn");
-const openOptionsBtn = $("openOptionsBtn");
+const settingsBtn = $("settingsBtn");
 const urlFieldEl = $("urlField");
 const articleUrlEl = $("articleUrl");
 const pickUrlBtn = $("pickUrlBtn");
 const pickMultiBtn = $("pickMultiBtn");
 const downloadLocationFieldEl = $("downloadLocationField");
 const downloadPresetEl = $("downloadPreset");
+const downloadPresetHintEl = $("downloadPresetHint");
 const tagSelectorEl = $("tagSelector");
 const tagSelectorHintEl = $("tagSelectorHint");
 const splashEl = $("splash");
@@ -20,15 +25,17 @@ const sourceModeInputs = document.querySelectorAll('input[name="sourceMode"]');
 const outputModeInputs = document.querySelectorAll('input[name="outputMode"]');
 
 const MAX_TAGS = 5;
-const PRESET_IDS = ["preset1", "preset2", "preset3"];
+const PRESET_IDS = [...FOLDER_PRESET_IDS];
 const STORAGE_KEY_NAMES = [
   "sourceMode",
   "outputMode",
   "articleUrl",
   "tags",
+  "obsidianLinkify",
   "downloadPreset",
   "presetConfigs",
   "presetTagCandidates",
+  "presetObsidianLinkWords",
 ];
 const DEFAULT_PRESET_CONFIGS = {
   preset1: { name: "プリセット1", folderLabel: "", hasFolder: false },
@@ -38,6 +45,7 @@ const DEFAULT_PRESET_CONFIGS = {
 
 let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
 let presetTagCandidates = [];
+let presetObsidianLinkWords = [];
 let splashTimer = null;
 
 const setStatus = (message, kind = "") => {
@@ -60,11 +68,13 @@ const startLinkPickMode = async () => {
       throw new Error("note.com ページを開いてから「選択する」を押してください。");
     }
 
+    const obsidianSettings = await getStoredObsidianSettings();
     const response = await chrome.tabs.sendMessage(tab.id, {
       type: "startLinkPickMode",
       outputMode: getSelectedOutputMode(),
       downloadPreset: downloadPresetEl.value,
       tags: getUserTags(),
+      obsidianLinkify: obsidianSettings.obsidianLinkify,
     });
     if (!response?.ok) {
       throw new Error(response?.error ?? "リンク選択モードを開始できませんでした。");
@@ -82,10 +92,12 @@ const startMultiPickMode = async () => {
     if (!tab.url.startsWith("https://note.com/")) {
       throw new Error("note.com ページを開いてから「複数選択」を押してください。");
     }
+    const obsidianSettings = await getStoredObsidianSettings();
     const response = await chrome.tabs.sendMessage(tab.id, {
       type: "startMultiLinkPickMode",
       downloadPreset: downloadPresetEl.value,
       tags: getUserTags(),
+      obsidianLinkify: obsidianSettings.obsidianLinkify,
     });
     if (!response?.ok) {
       throw new Error(response?.error ?? "複数選択モードを開始できませんでした。");
@@ -138,7 +150,11 @@ const updateUrlFieldVisibility = () => {
 };
 
 const updateDownloadLocationVisibility = () => {
-  downloadLocationFieldEl.classList.toggle("hidden", getSelectedOutputMode() !== "download");
+  const isDownload = getSelectedOutputMode() === "download";
+  downloadLocationFieldEl.classList.toggle("hidden", !isDownload);
+  if (isDownload) {
+    updateDownloadPresetHint();
+  }
 };
 
 const normalizeTag = (tag) => String(tag).replace(/^#/, "").trim();
@@ -203,6 +219,27 @@ const getUserTags = () => {
   return tags;
 };
 
+const getStoredObsidianSettings = async () => {
+  if (!chrome.storage?.local) {
+    return { obsidianLinkify: false, obsidianLinkWords: [] };
+  }
+  const stored = await chrome.storage.local.get(["obsidianLinkify", "presetObsidianLinkWords"]);
+  return {
+    obsidianLinkify: Boolean(stored.obsidianLinkify),
+    obsidianLinkWords: Array.isArray(stored.presetObsidianLinkWords)
+      ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
+      : [],
+  };
+};
+
+const getConversionOptions = async () => {
+  const obsidianSettings = await getStoredObsidianSettings();
+  return {
+    tags: getUserTags(),
+    ...obsidianSettings,
+  };
+};
+
 const sanitizePresetConfig = (config, fallbackName) => ({
   name: String(config?.name ?? fallbackName).trim() || fallbackName,
   folderLabel: String(config?.folderLabel ?? "").trim(),
@@ -215,8 +252,33 @@ const sanitizePresetConfigs = (configs) => ({
   preset3: sanitizePresetConfig(configs?.preset3, "プリセット3"),
 });
 
+const areAllFolderPresetsUnset = (configs = presetConfigs) =>
+  FOLDER_PRESET_IDS.every((id) => !configs[id]?.hasFolder);
+
+const getConfiguredPresetIds = (configs = presetConfigs) =>
+  FOLDER_PRESET_IDS.filter((id) => configs[id]?.hasFolder);
+
+const assertDownloadPresetReady = () => {
+  const presetId = getSelectedDownloadPreset();
+  const config = presetConfigs[presetId];
+  if (config?.hasFolder) {
+    return presetId;
+  }
+  throw new Error(PRESET_FOLDER_REQUIRED_ERROR);
+};
+
+const updateDownloadPresetHint = () => {
+  if (!downloadPresetHintEl) {
+    return;
+  }
+  const showHint = areAllFolderPresetsUnset();
+  downloadPresetHintEl.classList.toggle("hidden", !showHint);
+};
+
 const renderPresetOptions = () => {
-  PRESET_IDS.forEach((id, index) => {
+  const configuredIds = getConfiguredPresetIds();
+
+  FOLDER_PRESET_IDS.forEach((id, index) => {
     const option = downloadPresetEl.querySelector(`option[value="${id}"]`);
     if (!option) {
       return;
@@ -225,7 +287,14 @@ const renderPresetOptions = () => {
     const name = config?.name?.trim() || `プリセット${index + 1}`;
     const suffix = config?.hasFolder ? ` (${config.folderLabel || "選択済み"})` : " (未設定)";
     option.textContent = `${name}${suffix}`;
+    option.disabled = !config?.hasFolder;
   });
+
+  if (configuredIds.length > 0 && !presetConfigs[downloadPresetEl.value]?.hasFolder) {
+    downloadPresetEl.value = configuredIds[0];
+  }
+
+  updateDownloadPresetHint();
 };
 
 const savePreferences = async () => {
@@ -238,7 +307,9 @@ const savePreferences = async () => {
       outputMode: getSelectedOutputMode(),
       articleUrl: articleUrlEl.value.trim(),
       tags: getUserTags(),
-      downloadPreset: PRESET_IDS.includes(downloadPresetEl.value) ? downloadPresetEl.value : "preset1",
+      downloadPreset: DOWNLOAD_PRESET_IDS.includes(downloadPresetEl.value)
+        ? downloadPresetEl.value
+        : "preset1",
       presetConfigs,
     });
   } catch {
@@ -267,11 +338,17 @@ const loadPreferences = async () => {
     if (Array.isArray(stored.tags)) {
       renderTagSelector(stored.tags);
     }
-    if (typeof stored.downloadPreset === "string" && PRESET_IDS.includes(stored.downloadPreset)) {
+    if (
+      typeof stored.downloadPreset === "string" &&
+      DOWNLOAD_PRESET_IDS.includes(stored.downloadPreset)
+    ) {
       downloadPresetEl.value = stored.downloadPreset;
     }
     presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
     presetTagCandidates = sanitizeTagCandidates(stored.presetTagCandidates ?? []);
+    presetObsidianLinkWords = Array.isArray(stored.presetObsidianLinkWords)
+      ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
+      : [];
     if (!Array.isArray(stored.tags)) {
       renderTagSelector([]);
     } else {
@@ -280,6 +357,7 @@ const loadPreferences = async () => {
   } catch {
     presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
     presetTagCandidates = [];
+    presetObsidianLinkWords = [];
     renderTagSelector([]);
   }
   updateUrlFieldVisibility();
@@ -308,7 +386,7 @@ const copyMarkdown = async (text) => {
 };
 
 const getSelectedDownloadPreset = () =>
-  PRESET_IDS.includes(downloadPresetEl.value) ? downloadPresetEl.value : "preset1";
+  DOWNLOAD_PRESET_IDS.includes(downloadPresetEl.value) ? downloadPresetEl.value : "preset1";
 
 const checkNoteFileExists = async (articleUrl) => {
   const response = await chrome.runtime.sendMessage({
@@ -363,9 +441,10 @@ const convertCurrentTab = async () => {
 
   let response;
   try {
+    const conversionOptions = await getConversionOptions();
     response = await chrome.tabs.sendMessage(tab.id, {
       type: "convert",
-      tags: getUserTags(),
+      ...conversionOptions,
     });
   } catch {
     throw new Error("ページを再読み込みしてから、もう一度お試しください。");
@@ -395,9 +474,8 @@ const convertFromUrl = async (url) => {
 
   const html = await response.text();
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const result = NoteToMarkdown.convertNotePageToMarkdown(doc, url, {
-    tags: getUserTags(),
-  });
+  const conversionOptions = await getConversionOptions();
+  const result = NoteToMarkdown.convertNotePageToMarkdown(doc, url, conversionOptions);
   return { title: result.title, markdown: result.markdown, articleUrl: url };
 };
 
@@ -432,6 +510,7 @@ const convert = async () => {
     const articleUrl = await resolveArticleUrlForConvert(sourceMode);
 
     if (getSelectedOutputMode() === "download") {
+      assertDownloadPresetReady();
       const existsResult = await checkNoteFileExists(articleUrl);
       if (existsResult.exists) {
         setStatus("");
@@ -478,7 +557,7 @@ downloadPresetEl.addEventListener("change", () => {
   void savePreferences();
 });
 
-openOptionsBtn.addEventListener("click", () => {
+settingsBtn.addEventListener("click", () => {
   void chrome.runtime.openOptionsPage();
 });
 
@@ -489,6 +568,13 @@ pickUrlBtn.addEventListener("click", () => {
 pickMultiBtn.addEventListener("click", () => {
   if (getSelectedOutputMode() !== "download") {
     setStatus("一括はダウンロードのみ対応です。変換後をダウンロードにしてください。", "error");
+    return;
+  }
+  try {
+    assertDownloadPresetReady();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : PRESET_FOLDER_REQUIRED_ERROR;
+    setStatus(message, "error");
     return;
   }
   void startMultiPickMode();
