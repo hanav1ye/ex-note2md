@@ -1,0 +1,9 @@
+{
+  "name": "ex-note2md",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Build helpers for ex-note2md extension.",
+  "scripts": {
+    "build:dist": "node scripts/build-dist.mjs"
+  }
+}
