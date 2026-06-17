@@ -31,11 +31,9 @@ const STORAGE_KEY_NAMES = [
   "outputMode",
   "articleUrl",
   "tags",
-  "obsidianLinkify",
   "downloadPreset",
   "presetConfigs",
   "presetTagCandidates",
-  "presetObsidianLinkWords",
 ];
 const DEFAULT_PRESET_CONFIGS = {
   preset1: { name: "プリセット1", folderLabel: "", hasFolder: false },
@@ -45,7 +43,6 @@ const DEFAULT_PRESET_CONFIGS = {
 
 let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
 let presetTagCandidates = [];
-let presetObsidianLinkWords = [];
 let splashTimer = null;
 
 const setStatus = (message, kind = "") => {
@@ -346,9 +343,6 @@ const loadPreferences = async () => {
     }
     presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
     presetTagCandidates = sanitizeTagCandidates(stored.presetTagCandidates ?? []);
-    presetObsidianLinkWords = Array.isArray(stored.presetObsidianLinkWords)
-      ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
-      : [];
     if (!Array.isArray(stored.tags)) {
       renderTagSelector([]);
     } else {
@@ -357,7 +351,6 @@ const loadPreferences = async () => {
   } catch {
     presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
     presetTagCandidates = [];
-    presetObsidianLinkWords = [];
     renderTagSelector([]);
   }
   updateUrlFieldVisibility();
