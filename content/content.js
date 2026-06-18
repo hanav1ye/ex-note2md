@@ -18,8 +18,14 @@ let multiProgressTotal = 0;
 let pageToastTimer = null;
 const PAGE_TOAST_ID = "ntm-page-toast";
 
+/**
+ * URLがnote記事形式か判定する。
+ * @param {string} url - 判定対象URL。
+ * @returns {boolean} 記事URLであれば true。
+ */
 const isNoteArticleUrl = (url) => NoteToMarkdown.isNoteArticleUrl(url, location.origin);
 
+/** ホバー枠線を消去する。 */
 const clearHover = () => {
   if (!hoverTarget) {
     return;
@@ -28,6 +34,11 @@ const clearHover = () => {
   hoverTarget = null;
 };
 
+/**
+ * ページ上部にトーストを表示する。
+ * @param {string} message - 表示文言。
+ * @param {"ok"|"skip"|"error"} [kind="ok"] - 表示種別。
+ */
 const showPageToast = (message, kind = "ok") => {
   let toast = document.getElementById(PAGE_TOAST_ID);
   if (!toast) {
@@ -74,6 +85,10 @@ const showPageToast = (message, kind = "ok") => {
   }, 2600);
 };
 
+/**
+ * ホバー対象リンクを切り替える。
+ * @param {HTMLAnchorElement|null} anchor - 新しいホバー対象。
+ */
 const setHover = (anchor) => {
   if (hoverTarget === anchor) {
     return;
@@ -85,6 +100,11 @@ const setHover = (anchor) => {
   }
 };
 
+/**
+ * マウスイベントから note記事リンク要素を解決する。
+ * @param {MouseEvent} event - 対象イベント。
+ * @returns {HTMLAnchorElement|null} 記事リンクアンカー。
+ */
 const resolveAnchorFromEvent = (event) => {
   const target = event.target;
   if (!(target instanceof Element)) {
@@ -101,13 +121,27 @@ const resolveAnchorFromEvent = (event) => {
   return anchor;
 };
 
+/**
+ * リンク要素から表示用タイトルを抽出する。
+ * @param {HTMLAnchorElement} anchor - 対象リンク。
+ * @returns {string} タイトル文字列。
+ */
 const getAnchorTitle = (anchor) =>
   (anchor.getAttribute("aria-label") ?? anchor.textContent ?? "")
     .replace(/\s+/g, " ")
     .trim() || "（タイトル不明）";
 
+/**
+ * 一覧自動選択から除外するタイトルか判定する。
+ * @param {string} title - 記事タイトル。
+ * @returns {boolean} 除外対象なら true。
+ */
 const isExcludedListTitle = (title) => title === "プロフィール" || title === "仕事依頼";
 
+/**
+ * note一覧の描画ルート要素を探索する。
+ * @returns {Element|null} 一覧ルート要素。
+ */
 const getArticleListRoot = () =>
   Array.from(document.querySelectorAll("div")).find(
     (el) =>
@@ -116,6 +150,10 @@ const getArticleListRoot = () =>
       el.classList.contains("max-w-[var(--size-content)]")
   ) ?? null;
 
+/**
+ * 一覧ルート配下から描画済みの記事リンク候補を収集する。
+ * @returns {{anchor: HTMLAnchorElement, url: string, title: string, top: number, left: number}[]} 候補一覧。
+ */
 const getRenderedArticleCandidates = () => {
   const listRoot = getArticleListRoot();
   if (!listRoot) {
@@ -146,6 +184,7 @@ const getRenderedArticleCandidates = () => {
     .sort((a, b) => (a.top === b.top ? a.left - b.left : a.top - b.top));
 };
 
+/** 一覧内の候補記事を選択リストへ一括追加する。 */
 const addVisibleArticlesToSelection = () => {
   const candidates = getRenderedArticleCandidates();
   if (candidates.length === 0) {
@@ -170,11 +209,13 @@ const addVisibleArticlesToSelection = () => {
   showPageToast(`一覧から ${addedCount}件 追加しました。`, "ok");
 };
 
+/** 複数選択パネルをDOMから削除する。 */
 const removeMultiPanel = () => {
   multiPanelEl?.remove();
   multiPanelEl = null;
 };
 
+/** 複数選択パネルを現在stateで描画/更新する。 */
 const renderMultiPanel = () => {
   if (!multiPickModeActive) {
     removeMultiPanel();
@@ -331,6 +372,7 @@ const renderMultiPanel = () => {
   }
 };
 
+/** 単一選択モードを終了し、イベント/表示を後片付けする。 */
 const endPickMode = () => {
   if (!pickModeActive) {
     return;
@@ -342,6 +384,7 @@ const endPickMode = () => {
   document.body.style.cursor = previousCursor;
 };
 
+/** 複数選択モードを終了し、イベント/表示を後片付けする。 */
 const endMultiPickMode = () => {
   if (!multiPickModeActive) {
     return;
@@ -354,6 +397,10 @@ const endMultiPickMode = () => {
   removeMultiPanel();
 };
 
+/**
+ * リンク選択モード中のマウス移動ハンドラ。
+ * @param {MouseEvent} event - マウスイベント。
+ */
 const handlePickMouseMove = (event) => {
   if (!pickModeActive) {
     return;
@@ -362,6 +409,10 @@ const handlePickMouseMove = (event) => {
   setHover(anchor);
 };
 
+/**
+ * 単一選択モード中のクリックハンドラ。
+ * @param {MouseEvent} event - クリックイベント。
+ */
 const handlePickClick = (event) => {
   if (!pickModeActive) {
     return;
@@ -384,6 +435,10 @@ const handlePickClick = (event) => {
   });
 };
 
+/**
+ * 複数選択モード中のクリックハンドラ。
+ * @param {MouseEvent} event - クリックイベント。
+ */
 const handleMultiPickClick = (event) => {
   if (!multiPickModeActive) {
     return;
@@ -417,6 +472,7 @@ const handleMultiPickClick = (event) => {
   renderMultiPanel();
 };
 
+/** 単一リンク選択モードを開始する。 */
 const startPickMode = () => {
   if (pickModeActive) {
     return;
@@ -428,6 +484,7 @@ const startPickMode = () => {
   document.addEventListener("click", handlePickClick, true);
 };
 
+/** 複数リンク選択モードを開始する。 */
 const startMultiPickMode = () => {
   if (multiPickModeActive) {
     return;
@@ -443,8 +500,19 @@ const startMultiPickMode = () => {
   showPageToast("複数選択モード開始。記事リンクをクリックしてください。", "ok");
 };
 
+/**
+ * タグ値を正規化する（先頭#除去）。
+ * @param {string} tag - 入力タグ。
+ * @returns {string} 正規化タグ。
+ */
 const normalizeTag = (tag) => String(tag).replace(/^#/, "").trim();
 
+/**
+ * ユーザータグ配列を正規化し、重複・上限を調整する。
+ * @param {unknown[]} tags - 入力タグ配列。
+ * @param {number} [maxTags=5] - 最大件数。
+ * @returns {string[]} 正規化タグ配列。
+ */
 const normalizeUserTags = (tags, maxTags = 5) => {
   const normalized = [];
   (Array.isArray(tags) ? tags : []).forEach((tag) => {
@@ -456,6 +524,11 @@ const normalizeUserTags = (tags, maxTags = 5) => {
   return normalized;
 };
 
+/**
+ * Markdown文字列をクリップボードへコピーする。
+ * @param {string} text - コピー対象文字列。
+ * @returns {Promise<boolean>} 成功時 true。
+ */
 const copyMarkdown = async (text) => {
   try {
     await navigator.clipboard.writeText(text);
@@ -476,6 +549,10 @@ const copyMarkdown = async (text) => {
   }
 };
 
+/**
+ * 変換時に使うオプションを構築する。
+ * @returns {Promise<{tags: string[], obsidianLinkify: boolean, obsidianLinkWords: string[]}>} 変換オプション。
+ */
 const getConversionOptions = async () => {
   const stored = await chrome.storage.local.get(["presetObsidianLinkWords"]);
   return {
@@ -487,6 +564,12 @@ const getConversionOptions = async () => {
   };
 };
 
+/**
+ * 単一記事の取得・変換・出力（コピー/ダウンロード）を実行する。
+ * @param {string} url - 対象記事URL。
+ * @param {{suppressToast?: boolean}} [options={}] - 表示制御オプション。
+ * @returns {Promise<{mode: string, title: string, message: string, overwritten?: boolean}>} 実行結果。
+ */
 const convertPickedArticle = async (url, options = {}) => {
   if (!url) {
     throw new Error("記事URLが選択されていません。");
@@ -555,6 +638,10 @@ const convertPickedArticle = async (url, options = {}) => {
   };
 };
 
+/**
+ * 複数選択記事を順次処理して集計結果を返す。
+ * @returns {Promise<{ok: true, mode: string, successCount: number, overwrittenCount: number, failedCount: number, title: string}>}
+ */
 const runMultiPickedArticleAction = async () => {
   if (!Array.isArray(multiPickedArticles) || multiPickedArticles.length === 0) {
     throw new Error("記事URLが選択されていません。");
@@ -618,6 +705,7 @@ const runMultiPickedArticleAction = async () => {
   };
 };
 
+/** 複数選択パネルの「実行」押下時に多重実行を抑制して起動する。 */
 const executeMultiPickNow = async () => {
   if (multiRunning) {
     return;
@@ -633,6 +721,7 @@ const executeMultiPickNow = async () => {
   }
 };
 
+/** popup/background からのメッセージを受け取り、モード制御や変換処理を実行する。 */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "startLinkPickMode") {
     pickContext = {

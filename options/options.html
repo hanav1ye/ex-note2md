@@ -78,8 +78,12 @@
           />
           <button id="addTagBtn" type="button">追加</button>
         </div>
+        <div class="bulk-add-row">
+          <button id="openTagBulkModalBtn" type="button" class="ghost">改行で一括追加</button>
+        </div>
         <div id="tagCandidateList" class="tag-candidate-list"></div>
         <p id="tagCandidateEmptyHint" class="hint inline empty-hint">タグ候補はまだありません。</p>
+        <div id="tagStatus" class="status" role="status" aria-live="polite"></div>
       </div>
     </section>
 
@@ -103,13 +107,35 @@
           />
           <button id="addObsidianWordBtn" type="button">追加</button>
         </div>
+        <div class="bulk-add-row">
+          <button id="openObsidianBulkModalBtn" type="button" class="ghost">改行で一括追加</button>
+        </div>
         <div id="obsidianWordList" class="tag-candidate-list"></div>
         <p id="obsidianWordEmptyHint" class="hint inline empty-hint">リンク化ワードはまだありません。</p>
+        <div id="obsidianStatus" class="status" role="status" aria-live="polite"></div>
       </div>
     </section>
 
-    <div id="status" class="status" role="status"></div>
   </main>
+
+  <dialog id="bulkAddModal" class="bulk-add-modal" aria-labelledby="bulkAddModalTitle">
+    <form id="bulkAddForm" method="dialog" class="bulk-add-form">
+      <h3 id="bulkAddModalTitle" class="bulk-add-title">改行で一括追加</h3>
+      <p id="bulkAddModalHint" class="hint inline">
+        1行に1件入力してください。既に登録済みの値は自動でスキップされます。
+      </p>
+      <textarea
+        id="bulkAddTextarea"
+        class="bulk-add-textarea"
+        rows="10"
+        placeholder="例:\n学習メモ\n技術検証"
+      ></textarea>
+      <div class="bulk-add-actions">
+        <button id="bulkAddCancelBtn" type="button" class="ghost">キャンセル</button>
+        <button id="bulkAddSubmitBtn" type="submit">登録する</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="options.js"></script>
 </body>

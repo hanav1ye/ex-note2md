@@ -45,11 +45,20 @@ let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
 let presetTagCandidates = [];
 let splashTimer = null;
 
+/**
+ * ステータス行にメッセージを表示する。
+ * @param {string} message - 表示文言。
+ * @param {""|"ok"|"error"} [kind=""] - 表示種別。
+ */
 const setStatus = (message, kind = "") => {
   statusEl.textContent = message;
   statusEl.className = `status ${kind}`.trim();
 };
 
+/**
+ * 現在アクティブなタブを取得する。
+ * @returns {Promise<chrome.tabs.Tab>} アクティブタブ。
+ */
 const getActiveNoteTab = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) {
@@ -58,6 +67,10 @@ const getActiveNoteTab = async () => {
   return tab;
 };
 
+/**
+ * ページ上の単一リンク選択モードを開始する。
+ * content scriptへ現在の設定を渡す。
+ */
 const startLinkPickMode = async () => {
   try {
     const tab = await getActiveNoteTab();
@@ -83,6 +96,7 @@ const startLinkPickMode = async () => {
   }
 };
 
+/** ページ上の複数リンク選択モードを開始する。 */
 const startMultiPickMode = async () => {
   try {
     const tab = await getActiveNoteTab();
@@ -106,6 +120,12 @@ const startMultiPickMode = async () => {
   }
 };
 
+/**
+ * ポップアップ内の完了通知（スプラッシュ）を表示する。
+ * @param {string} title - タイトル。
+ * @param {string} message - 詳細文。
+ * @param {"ok"|"skip"} [variant="ok"] - 表示バリエーション。
+ */
 const showSplash = (title, message, variant = "ok") => {
   if (!splashEl || !splashMarkEl || !splashTitleEl || !splashMessageEl) {
     return;
@@ -130,22 +150,37 @@ const showSplash = (title, message, variant = "ok") => {
 
 const isNoteArticleUrl = (url) => NoteToMarkdown.isNoteArticleUrl(url);
 
+/**
+ * 変換元ラジオの現在値を取得する。
+ * @returns {"tab"|"url"} 選択中の変換元。
+ */
 const getSelectedSourceMode = () =>
   document.querySelector('input[name="sourceMode"]:checked')?.value ?? "tab";
 
+/**
+ * 変換後ラジオの現在値を取得する。
+ * @returns {"copy"|"download"} 選択中の出力先。
+ */
 const getSelectedOutputMode = () =>
   document.querySelector('input[name="outputMode"]:checked')?.value ?? "copy";
 
+/**
+ * 指定ラジオ群に対して選択値をセットする。
+ * @param {NodeListOf<HTMLInputElement>} inputs - 対象ラジオ群。
+ * @param {string} value - 選択させる値。
+ */
 const setSelectedRadio = (inputs, value) => {
   inputs.forEach((input) => {
     input.checked = input.value === value;
   });
 };
 
+/** URL入力欄の表示/非表示を切り替える。 */
 const updateUrlFieldVisibility = () => {
   urlFieldEl.classList.toggle("hidden", getSelectedSourceMode() !== "url");
 };
 
+/** ダウンロード先選択欄の表示/非表示を切り替える。 */
 const updateDownloadLocationVisibility = () => {
   const isDownload = getSelectedOutputMode() === "download";
   downloadLocationFieldEl.classList.toggle("hidden", !isDownload);
@@ -154,8 +189,18 @@ const updateDownloadLocationVisibility = () => {
   }
 };
 
+/**
+ * タグ入力値を正規化する（先頭#を除去）。
+ * @param {string} tag - 生タグ文字列。
+ * @returns {string} 正規化済みタグ。
+ */
 const normalizeTag = (tag) => String(tag).replace(/^#/, "").trim();
 
+/**
+ * タグ候補配列を正規化し、空・重複を除去する。
+ * @param {unknown[]} candidates - 保存済み候補配列。
+ * @returns {string[]} 正規化済み候補。
+ */
 const sanitizeTagCandidates = (candidates) => {
   const normalized = [];
   (Array.isArray(candidates) ? candidates : []).forEach((candidate) => {
@@ -167,6 +212,10 @@ const sanitizeTagCandidates = (candidates) => {
   return normalized;
 };
 
+/**
+ * タグ候補チェックボックス群を再描画する。
+ * @param {string[]} [selectedTags=[]] - 初期選択タグ。
+ */
 const renderTagSelector = (selectedTags = []) => {
   const selected = sanitizeTagCandidates(selectedTags).slice(0, MAX_TAGS);
   tagSelectorEl.innerHTML = "";
@@ -205,6 +254,10 @@ const renderTagSelector = (selectedTags = []) => {
   });
 };
 
+/**
+ * 現在チェックされているユーザータグを取得する。
+ * @returns {string[]} 選択タグ（最大 MAX_TAGS）。
+ */
 const getUserTags = () => {
   const tags = [];
   tagSelectorEl.querySelectorAll('input[type="checkbox"]:checked').forEach((input) => {
@@ -216,6 +269,10 @@ const getUserTags = () => {
   return tags;
 };
 
+/**
+ * Obsidian連携設定（トグル/単語リスト）を storage から取得する。
+ * @returns {Promise<{obsidianLinkify: boolean, obsidianLinkWords: string[]}>} 変換オプション。
+ */
 const getStoredObsidianSettings = async () => {
   if (!chrome.storage?.local) {
     return { obsidianLinkify: false, obsidianLinkWords: [] };
@@ -229,6 +286,10 @@ const getStoredObsidianSettings = async () => {
   };
 };
 
+/**
+ * 変換時に content script / ライブラリへ渡すオプションを組み立てる。
+ * @returns {Promise<{tags: string[], obsidianLinkify: boolean, obsidianLinkWords: string[]}>}
+ */
 const getConversionOptions = async () => {
   const obsidianSettings = await getStoredObsidianSettings();
   return {
@@ -237,24 +298,50 @@ const getConversionOptions = async () => {
   };
 };
 
+/**
+ * 単一プリセット設定を正規化する。
+ * @param {any} config - 生設定。
+ * @param {string} fallbackName - 表示名既定値。
+ * @returns {{name: string, folderLabel: string, hasFolder: boolean}} 正規化済み設定。
+ */
 const sanitizePresetConfig = (config, fallbackName) => ({
   name: String(config?.name ?? fallbackName).trim() || fallbackName,
   folderLabel: String(config?.folderLabel ?? "").trim(),
   hasFolder: Boolean(config?.hasFolder),
 });
 
+/**
+ * プリセット設定全体を正規化する。
+ * @param {any} configs - 生設定。
+ * @returns {{preset1: object, preset2: object, preset3: object}} 正規化済み設定群。
+ */
 const sanitizePresetConfigs = (configs) => ({
   preset1: sanitizePresetConfig(configs?.preset1, "プリセット1"),
   preset2: sanitizePresetConfig(configs?.preset2, "プリセット2"),
   preset3: sanitizePresetConfig(configs?.preset3, "プリセット3"),
 });
 
+/**
+ * 全フォルダプリセットが未設定か判定する。
+ * @param {Record<string, {hasFolder?: boolean}>} [configs=presetConfigs] - 判定対象設定。
+ * @returns {boolean} 全未設定なら true。
+ */
 const areAllFolderPresetsUnset = (configs = presetConfigs) =>
   FOLDER_PRESET_IDS.every((id) => !configs[id]?.hasFolder);
 
+/**
+ * 実際に使える（フォルダ設定済みの）プリセットID一覧を返す。
+ * @param {Record<string, {hasFolder?: boolean}>} [configs=presetConfigs] - 判定対象設定。
+ * @returns {string[]} 利用可能プリセットID。
+ */
 const getConfiguredPresetIds = (configs = presetConfigs) =>
   FOLDER_PRESET_IDS.filter((id) => configs[id]?.hasFolder);
 
+/**
+ * ダウンロード前に選択プリセットが利用可能か検証する。
+ * @returns {string} 利用可能なプリセットID。
+ * @throws {Error} 未設定時。
+ */
 const assertDownloadPresetReady = () => {
   const presetId = getSelectedDownloadPreset();
   const config = presetConfigs[presetId];
@@ -264,6 +351,7 @@ const assertDownloadPresetReady = () => {
   throw new Error(PRESET_FOLDER_REQUIRED_ERROR);
 };
 
+/** 「プリセット未設定」ヒントの表示状態を更新する。 */
 const updateDownloadPresetHint = () => {
   if (!downloadPresetHintEl) {
     return;
@@ -272,6 +360,7 @@ const updateDownloadPresetHint = () => {
   downloadPresetHintEl.classList.toggle("hidden", !showHint);
 };
 
+/** ダウンロード先セレクトの表示名/disable状態を更新する。 */
 const renderPresetOptions = () => {
   const configuredIds = getConfiguredPresetIds();
 
@@ -294,6 +383,7 @@ const renderPresetOptions = () => {
   updateDownloadPresetHint();
 };
 
+/** popup内の設定値を chrome.storage.local に保存する。 */
 const savePreferences = async () => {
   if (!chrome.storage?.local) {
     return;
@@ -314,6 +404,7 @@ const savePreferences = async () => {
   }
 };
 
+/** popup起動時に保存済み設定を読み込み、UIへ反映する。 */
 const loadPreferences = async () => {
   if (!chrome.storage?.local) {
     updateUrlFieldVisibility();
@@ -358,6 +449,12 @@ const loadPreferences = async () => {
   renderPresetOptions();
 };
 
+/**
+ * Markdown文字列をクリップボードへコピーする。
+ * Clipboard API失敗時は execCommand にフォールバックする。
+ * @param {string} text - コピー対象文字列。
+ * @returns {Promise<boolean>} コピー成功時 true。
+ */
 const copyMarkdown = async (text) => {
   try {
     await navigator.clipboard.writeText(text);
@@ -378,9 +475,19 @@ const copyMarkdown = async (text) => {
   }
 };
 
+/**
+ * ダウンロード時に使うプリセットIDを安全に取得する。
+ * @returns {string} 利用するプリセットID。
+ */
 const getSelectedDownloadPreset = () =>
   DOWNLOAD_PRESET_IDS.includes(downloadPresetEl.value) ? downloadPresetEl.value : "preset1";
 
+/**
+ * backgroundへ保存要求を送り、結果を受け取る。
+ * @param {string} text - 保存するMarkdown本文。
+ * @param {string} articleUrl - 元記事URL。
+ * @returns {Promise<{ok: boolean, overwritten?: boolean, filename?: string, error?: string}>}
+ */
 const downloadMarkdown = async (text, articleUrl) => {
   const response = await chrome.runtime.sendMessage({
     type: "downloadMarkdownByPreset",
@@ -394,6 +501,12 @@ const downloadMarkdown = async (text, articleUrl) => {
   return response;
 };
 
+/**
+ * 出力方法（コピー/ダウンロード）に応じて処理を分岐する。
+ * @param {string} title - 記事タイトル。
+ * @param {string} markdown - 変換済みMarkdown。
+ * @param {string} articleUrl - 元記事URL。
+ */
 const applyOutputAction = async (title, markdown, articleUrl) => {
   if (getSelectedOutputMode() === "download") {
     const result = await downloadMarkdown(markdown, articleUrl);
@@ -414,6 +527,10 @@ const applyOutputAction = async (title, markdown, articleUrl) => {
   showSplash("コピー完了", `コピーしました: ${title}`);
 };
 
+/**
+ * 現在のタブ上で content script に変換実行を依頼する。
+ * @returns {Promise<{title: string, markdown: string, articleUrl: string}>} 変換結果。
+ */
 const convertCurrentTab = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) {
@@ -438,6 +555,11 @@ const convertCurrentTab = async () => {
   return { title: response.title, markdown: response.markdown, articleUrl: tab.url };
 };
 
+/**
+ * 指定URLの記事HTMLを取得して Markdown へ変換する。
+ * @param {string} url - 変換対象記事URL。
+ * @returns {Promise<{title: string, markdown: string, articleUrl: string}>} 変換結果。
+ */
 const convertFromUrl = async (url) => {
   let response;
   try {
@@ -460,6 +582,11 @@ const convertFromUrl = async (url) => {
   return { title: result.title, markdown: result.markdown, articleUrl: url };
 };
 
+/**
+ * 実行時点の変換対象URLを解決する（URL入力 or アクティブタブ）。
+ * @param {"tab"|"url"} sourceMode - 変換元モード。
+ * @returns {Promise<string>} 記事URL。
+ */
 const resolveArticleUrlForConvert = async (sourceMode) => {
   if (sourceMode === "url") {
     const url = articleUrlEl.value.trim();
@@ -482,6 +609,7 @@ const resolveArticleUrlForConvert = async (sourceMode) => {
   return tab.url;
 };
 
+/** popupのメイン変換処理。 */
 const convert = async () => {
   setStatus("変換中…");
   convertBtn.disabled = true;
@@ -559,6 +687,9 @@ convertBtn.addEventListener("click", () => {
   void convert();
 });
 
+/**
+ * content script から返る選択URL通知を受け取り、即時実行フローへつなぐ。
+ */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "pickedArticleUrl") {
     return false;
