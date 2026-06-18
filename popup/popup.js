@@ -381,18 +381,6 @@ const copyMarkdown = async (text) => {
 const getSelectedDownloadPreset = () =>
   DOWNLOAD_PRESET_IDS.includes(downloadPresetEl.value) ? downloadPresetEl.value : "preset1";
 
-const checkNoteFileExists = async (articleUrl) => {
-  const response = await chrome.runtime.sendMessage({
-    type: "checkNoteFileExists",
-    articleUrl,
-    downloadPreset: getSelectedDownloadPreset(),
-  });
-  if (!response?.ok) {
-    throw new Error(response?.error ?? "ファイル確認に失敗しました。");
-  }
-  return response;
-};
-
 const downloadMarkdown = async (text, articleUrl) => {
   const response = await chrome.runtime.sendMessage({
     type: "downloadMarkdownByPreset",
@@ -410,11 +398,11 @@ const applyOutputAction = async (title, markdown, articleUrl) => {
   if (getSelectedOutputMode() === "download") {
     const result = await downloadMarkdown(markdown, articleUrl);
     setStatus("");
-    if (result.skipped) {
-      showSplash("スキップしました", `既に保存済みです: ${result.filename}`, "skip");
+    if (result.overwritten) {
+      showSplash("上書き保存しました", `更新しました: ${result.filename}`);
       return;
     }
-    showSplash("ダウンロード完了", `保存しました: ${title}`);
+    showSplash("ダウンロード完了", `保存しました: ${result.filename || title}`);
     return;
   }
 
@@ -504,12 +492,6 @@ const convert = async () => {
 
     if (getSelectedOutputMode() === "download") {
       assertDownloadPresetReady();
-      const existsResult = await checkNoteFileExists(articleUrl);
-      if (existsResult.exists) {
-        setStatus("");
-        showSplash("スキップしました", `既に保存済みです: ${existsResult.filename}`, "skip");
-        return;
-      }
     }
 
     let result;

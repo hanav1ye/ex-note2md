@@ -104,45 +104,19 @@ const noteFileExists = async (directoryHandle, filename) => {
   }
 };
 
-const checkNoteFileExists = async ({ articleUrl, downloadPreset }) => {
-  const handle = await getPresetDirectoryHandle(downloadPreset);
-  const filename = `${filenameFromNoteUrl(articleUrl)}.md`;
-  const exists = await noteFileExists(handle, filename);
-  return { exists, filename };
-};
-
 const downloadMarkdownByPreset = async ({ markdown, articleUrl, downloadPreset }) => {
   const handle = await getPresetDirectoryHandle(downloadPreset);
   const filename = `${filenameFromNoteUrl(articleUrl)}.md`;
-
-  if (await noteFileExists(handle, filename)) {
-    return { skipped: true, filename };
-  }
+  const overwritten = await noteFileExists(handle, filename);
 
   const fileHandle = await handle.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(markdown);
   await writable.close();
-  return { skipped: false, filename };
+  return { overwritten, filename };
 };
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "checkNoteFileExists") {
-    void (async () => {
-      try {
-        const result = await checkNoteFileExists({
-          articleUrl: message.articleUrl ?? "",
-          downloadPreset: message.downloadPreset ?? "preset1",
-        });
-        sendResponse({ ok: true, ...result });
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "ファイル確認に失敗しました。";
-        sendResponse({ ok: false, error: errorMessage });
-      }
-    })();
-    return true;
-  }
-
   if (message?.type === "downloadMarkdownByPreset") {
     void (async () => {
       try {

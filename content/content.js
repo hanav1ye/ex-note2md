@@ -476,18 +476,6 @@ const copyMarkdown = async (text) => {
   }
 };
 
-const checkNoteFileExists = async (url) => {
-  const response = await chrome.runtime.sendMessage({
-    type: "checkNoteFileExists",
-    articleUrl: url,
-    downloadPreset: pickContext.downloadPreset,
-  });
-  if (!response?.ok) {
-    throw new Error(response?.error ?? "ファイル確認に失敗しました。");
-  }
-  return response;
-};
-
 const getConversionOptions = async () => {
   const stored = await chrome.storage.local.get(["presetObsidianLinkWords"]);
   return {
@@ -502,21 +490,6 @@ const getConversionOptions = async () => {
 const convertPickedArticle = async (url, options = {}) => {
   if (!url) {
     throw new Error("記事URLが選択されていません。");
-  }
-
-  if (pickContext.outputMode === "download") {
-    const existsResult = await checkNoteFileExists(url);
-    if (existsResult.exists) {
-      if (!options.suppressToast) {
-        showPageToast(`スキップ: 既に保存済みです (${existsResult.filename})`, "skip");
-      }
-      return {
-        mode: "download",
-        skipped: true,
-        title: existsResult.filename,
-        message: `既に保存済みです: ${existsResult.filename}`,
-      };
-    }
   }
 
   let response;
@@ -546,15 +519,15 @@ const convertPickedArticle = async (url, options = {}) => {
     if (!downloadResponse?.ok) {
       throw new Error(downloadResponse?.error ?? "ダウンロードに失敗しました。");
     }
-    if (downloadResponse.skipped) {
+    if (downloadResponse.overwritten) {
       if (!options.suppressToast) {
-        showPageToast(`スキップ: 既に保存済みです (${downloadResponse.filename})`, "skip");
+        showPageToast(`上書き保存: ${downloadResponse.filename}`, "ok");
       }
       return {
         mode: "download",
-        skipped: true,
+        overwritten: true,
         title: downloadResponse.filename,
-        message: `既に保存済みです: ${downloadResponse.filename}`,
+        message: `上書き保存しました: ${downloadResponse.filename}`,
       };
     }
     if (!options.suppressToast) {
@@ -562,7 +535,7 @@ const convertPickedArticle = async (url, options = {}) => {
     }
     return {
       mode: "download",
-      skipped: false,
+      overwritten: false,
       title: result.title,
       message: `保存しました: ${result.title}`,
     };
@@ -588,7 +561,7 @@ const runMultiPickedArticleAction = async () => {
   }
 
   let successCount = 0;
-  let skippedCount = 0;
+  let overwrittenCount = 0;
   let failedCount = 0;
   let lastTitle = "";
   multiRunning = true;
@@ -604,11 +577,11 @@ const runMultiPickedArticleAction = async () => {
     try {
       const result = await convertPickedArticle(currentUrl, { suppressToast: true });
       lastTitle = result.title;
-      if (result.skipped) {
-        skippedCount += 1;
+      if (result.overwritten) {
+        overwrittenCount += 1;
         showPageToast(
-          `スキップ (${i + 1}/${multiPickedArticles.length}): ${result.title}`,
-          "skip"
+          `上書き保存 (${i + 1}/${multiPickedArticles.length}): ${result.title}`,
+          "ok"
         );
       } else {
         successCount += 1;
@@ -624,14 +597,13 @@ const runMultiPickedArticleAction = async () => {
     }
   }
 
-  if (successCount === 0 && skippedCount === 0) {
+  if (successCount === 0 && overwrittenCount === 0) {
     throw new Error("すべての処理に失敗しました。");
   }
 
   const mode = "download";
-  const summary = `一括完了: 保存 ${successCount}件 / スキップ ${skippedCount}件 / 失敗 ${failedCount}件`;
-  const summaryKind =
-    failedCount > 0 ? "error" : skippedCount > 0 ? "skip" : "ok";
+  const summary = `一括完了: 新規保存 ${successCount}件 / 上書き ${overwrittenCount}件 / 失敗 ${failedCount}件`;
+  const summaryKind = failedCount > 0 ? "error" : "ok";
   showPageToast(summary, summaryKind);
   multiRunning = false;
   renderMultiPanel();
@@ -640,7 +612,7 @@ const runMultiPickedArticleAction = async () => {
     ok: true,
     mode,
     successCount,
-    skippedCount,
+    overwrittenCount,
     failedCount,
     title: lastTitle,
   };
