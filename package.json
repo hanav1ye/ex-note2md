@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Build helpers for ex-note2md extension.",
   "scripts": {
-    "build:dist": "node scripts/build-dist.mjs"
+    "build:dist": "node scripts/build-dist.mjs",
+    "update-like-count": "node scripts/update-like-count.mjs"
   }
 }
