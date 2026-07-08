@@ -1,6 +1,15 @@
 // オプション画面: 保存先プリセット（最大3つ）とタグ候補の管理
 const PRESET_IDS = ["preset1", "preset2", "preset3"];
-const STORAGE_KEYS = ["presetConfigs", "presetTagCandidates", "presetObsidianLinkWords", "obsidianLinkify"];
+const IMAGE_IMPORT_MODES = ["url", "download", "base64"];
+const STORAGE_KEYS = [
+  "presetConfigs",
+  "presetTagCandidates",
+  "presetObsidianLinkWords",
+  "obsidianLinkify",
+  "imageImportMode",
+  "imageFolderConfig",
+];
+const IMAGE_FOLDER_HANDLE_KEY = "imageFolder";
 const DB_NAME = "noteToMarkdownPresets";
 const DB_STORE = "directoryHandles";
 
@@ -18,6 +27,12 @@ const openObsidianBulkModalBtn = $("openObsidianBulkModalBtn");
 const obsidianWordListEl = $("obsidianWordList");
 const obsidianWordEmptyHintEl = $("obsidianWordEmptyHint");
 const obsidianLinkifyEl = $("obsidianLinkify");
+const imageImportModeInputs = document.querySelectorAll('input[name="imageImportMode"]');
+const imageFolderFieldEl = $("imageFolderField");
+const imageFolderLabelEl = $("imageFolderLabel");
+const imageFolderPickBtn = $("imageFolderPick");
+const imageFolderClearBtn = $("imageFolderClear");
+const imageImportStatusEl = $("imageImportStatus");
 const bulkAddModalEl = $("bulkAddModal");
 const bulkAddFormEl = $("bulkAddForm");
 const bulkAddModalTitleEl = $("bulkAddModalTitle");
@@ -33,6 +48,7 @@ const BULK_TARGETS = {
 const STATUS_TARGETS = {
   tag: "tag",
   obsidian: "obsidian",
+  image: "image",
 };
 
 const DEFAULT_PRESET_CONFIGS = {
@@ -40,11 +56,14 @@ const DEFAULT_PRESET_CONFIGS = {
   preset2: { name: "プリセット2", folderLabel: "", hasFolder: false },
   preset3: { name: "プリセット3", folderLabel: "", hasFolder: false },
 };
+const DEFAULT_IMAGE_FOLDER_CONFIG = { folderLabel: "", hasFolder: false };
 
 let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
 let presetTagCandidates = [];
 let presetObsidianLinkWords = [];
 let obsidianLinkifyEnabled = false;
+let imageImportMode = "url";
+let imageFolderConfig = { ...DEFAULT_IMAGE_FOLDER_CONFIG };
 let currentBulkTarget = BULK_TARGETS.tag;
 
 /**
@@ -52,8 +71,15 @@ let currentBulkTarget = BULK_TARGETS.tag;
  * @param {"tag"|"obsidian"} target - ステータスターゲット。
  * @returns {HTMLElement|null} 対応要素。
  */
-const statusElementByTarget = (target) =>
-  target === STATUS_TARGETS.obsidian ? obsidianStatusEl : tagStatusEl;
+const statusElementByTarget = (target) => {
+  if (target === STATUS_TARGETS.obsidian) {
+    return obsidianStatusEl;
+  }
+  if (target === STATUS_TARGETS.image) {
+    return imageImportStatusEl;
+  }
+  return tagStatusEl;
+};
 
 /**
  * 指定ターゲットのステータス表示を消去する。
@@ -75,16 +101,20 @@ const clearStatus = (target) => {
  */
 const setStatus = (target, message) => {
   const currentEl = statusElementByTarget(target);
-  const otherTarget = target === STATUS_TARGETS.tag ? STATUS_TARGETS.obsidian : STATUS_TARGETS.tag;
-  const otherEl = statusElementByTarget(otherTarget);
   if (!currentEl) {
     return;
   }
 
-  if (otherEl) {
-    otherEl.textContent = "";
-    otherEl.classList.remove("is-visible");
-  }
+  Object.values(STATUS_TARGETS).forEach((statusTarget) => {
+    if (statusTarget === target) {
+      return;
+    }
+    const el = statusElementByTarget(statusTarget);
+    if (el) {
+      el.textContent = "";
+      el.classList.remove("is-visible");
+    }
+  });
 
   const text = String(message ?? "").trim();
   currentEl.textContent = text;
@@ -113,6 +143,62 @@ const sanitizePresetConfigs = (configs) => ({
   preset2: sanitizePresetConfig(configs?.preset2, "プリセット2"),
   preset3: sanitizePresetConfig(configs?.preset3, "プリセット3"),
 });
+
+/**
+ * 画像取込方式を正規化する。
+ * @param {unknown} mode - 入力値。
+ * @returns {"url"|"download"|"base64"} 正規化後の方式。
+ */
+const normalizeImageImportMode = (mode) =>
+  IMAGE_IMPORT_MODES.includes(mode) ? mode : "url";
+
+/**
+ * 画像保存先フォルダ設定を正規化する。
+ * @param {any} config - 生設定。
+ * @returns {{folderLabel: string, hasFolder: boolean}} 正規化済み設定。
+ */
+const sanitizeImageFolderConfig = (config) => ({
+  folderLabel: String(config?.folderLabel ?? "").trim(),
+  hasFolder: Boolean(config?.hasFolder),
+});
+
+/** 画像取込方式ラジオの現在値を取得する。 */
+const getSelectedImageImportMode = () => {
+  const value = document.querySelector('input[name="imageImportMode"]:checked')?.value ?? imageImportMode;
+  return normalizeImageImportMode(value);
+};
+
+/**
+ * 指定ラジオ群に対して選択値をセットする。
+ * @param {NodeListOf<HTMLInputElement>} inputs - 対象ラジオ群。
+ * @param {string} value - 選択させる値。
+ */
+const setSelectedRadio = (inputs, value) => {
+  inputs.forEach((input) => {
+    input.checked = input.value === value;
+  });
+};
+
+/** 画像保存先フォルダ欄の表示状態を更新する。 */
+const updateImageFolderVisibility = () => {
+  imageFolderFieldEl?.classList.toggle("hidden", getSelectedImageImportMode() !== "download");
+};
+
+/** 画像保存先フォルダ表示を更新する。 */
+const renderImageFolderField = () => {
+  if (imageFolderLabelEl) {
+    imageFolderLabelEl.textContent = imageFolderConfig.hasFolder
+      ? `設定済み: ${imageFolderConfig.folderLabel || "フォルダ名不明"}`
+      : "未設定（フォルダ未選択）";
+  }
+  updateImageFolderVisibility();
+};
+
+/**
+ * フォルダ設定済みプリセットID一覧を返す。
+ * @returns {string[]} 利用可能プリセットID。
+ */
+const getConfiguredPresetIds = () => PRESET_IDS.filter((id) => presetConfigs[id]?.hasFolder);
 
 /**
  * タグ入力を正規化する（先頭#除去）。
@@ -393,6 +479,9 @@ const render = () => {
   if (obsidianWordEmptyHintEl) {
     obsidianWordEmptyHintEl.style.display = presetObsidianLinkWords.length > 0 ? "none" : "block";
   }
+
+  setSelectedRadio(imageImportModeInputs, imageImportMode);
+  renderImageFolderField();
 };
 
 /** 現在stateを chrome.storage.local へ保存する。 */
@@ -402,6 +491,8 @@ const persistConfigs = async () => {
     presetTagCandidates,
     presetObsidianLinkWords,
     obsidianLinkify: obsidianLinkifyEnabled,
+    imageImportMode,
+    imageFolderConfig,
   });
 };
 
@@ -412,6 +503,8 @@ const loadConfigs = async () => {
   presetTagCandidates = sanitizeTagCandidates(stored.presetTagCandidates ?? []);
   presetObsidianLinkWords = sanitizeObsidianLinkWords(stored.presetObsidianLinkWords ?? []);
   obsidianLinkifyEnabled = Boolean(stored.obsidianLinkify);
+  imageImportMode = normalizeImageImportMode(stored.imageImportMode);
+  imageFolderConfig = sanitizeImageFolderConfig(stored.imageFolderConfig ?? DEFAULT_IMAGE_FOLDER_CONFIG);
   if (obsidianLinkifyEl) {
     obsidianLinkifyEl.checked = obsidianLinkifyEnabled;
   }
@@ -528,6 +621,55 @@ const bindEvents = () => {
     );
   });
 
+  imageImportModeInputs.forEach((input) => {
+    input.addEventListener("change", async () => {
+      imageImportMode = getSelectedImageImportMode();
+      renderImageFolderField();
+      await persistConfigs();
+      const labels = {
+        url: "note URL参照",
+        download: "画像ダウンロード",
+        base64: "Base64埋込",
+      };
+      setStatus(STATUS_TARGETS.image, `画像取込方式を「${labels[imageImportMode]}」に設定しました。`);
+    });
+  });
+
+  imageFolderPickBtn?.addEventListener("click", async () => {
+    try {
+      const handle = await window.showDirectoryPicker();
+      const permission = await handle.requestPermission({ mode: "readwrite" });
+      if (permission !== "granted") {
+        setStatus(STATUS_TARGETS.image, "フォルダの書き込み権限が許可されませんでした。");
+        return;
+      }
+      await saveHandle(IMAGE_FOLDER_HANDLE_KEY, handle);
+      imageFolderConfig = {
+        folderLabel: handle.name || "",
+        hasFolder: true,
+      };
+      await persistConfigs();
+      renderImageFolderField();
+      setStatus(STATUS_TARGETS.image, "画像保存先フォルダを設定しました。");
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        setStatus(STATUS_TARGETS.image, "フォルダ設定に失敗しました。");
+      }
+    }
+  });
+
+  imageFolderClearBtn?.addEventListener("click", async () => {
+    try {
+      await deleteHandle(IMAGE_FOLDER_HANDLE_KEY);
+      imageFolderConfig = { ...DEFAULT_IMAGE_FOLDER_CONFIG };
+      await persistConfigs();
+      renderImageFolderField();
+      setStatus(STATUS_TARGETS.image, "画像保存先フォルダを解除しました。");
+    } catch {
+      setStatus(STATUS_TARGETS.image, "解除に失敗しました。");
+    }
+  });
+
   openTagBulkModalBtn?.addEventListener("click", () => {
     openBulkModal(BULK_TARGETS.tag);
   });
@@ -549,5 +691,6 @@ const bindEvents = () => {
 void loadConfigs().then(() => {
   clearStatus(STATUS_TARGETS.tag);
   clearStatus(STATUS_TARGETS.obsidian);
+  clearStatus(STATUS_TARGETS.image);
   bindEvents();
 });

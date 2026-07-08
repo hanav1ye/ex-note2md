@@ -7,9 +7,14 @@ const DEFAULT_PRESET_CONFIGS = {
 };
 const DB_NAME = "noteToMarkdownPresets";
 const DB_STORE = "directoryHandles";
+const IMAGE_FOLDER_HANDLE_KEY = "imageFolder";
 
 const PRESET_FOLDER_REQUIRED_ERROR =
   "ダウンロードには保存先プリセットのフォルダ設定が必要です。設定（歯車）から「保存先プリセット設定」でフォルダを選択してください。";
+const IMAGE_FOLDER_REQUIRED_ERROR =
+  "画像ダウンロードには画像保存先フォルダの設定が必要です。オプション画面の「画像取込方式」でフォルダを選択してください。";
+
+const DEFAULT_IMAGE_FOLDER_CONFIG = { folderLabel: "", hasFolder: false };
 
 /**
  * UI表示用のプリセット名を返す。
@@ -64,6 +69,16 @@ const sanitizePresetConfigs = (configs) => ({
 });
 
 /**
+ * 画像保存先フォルダ設定を正規化する。
+ * @param {any} config - 任意入力の設定。
+ * @returns {{folderLabel: string, hasFolder: boolean}} 正規化後設定。
+ */
+const sanitizeImageFolderConfig = (config) => ({
+  folderLabel: String(config?.folderLabel ?? "").trim(),
+  hasFolder: Boolean(config?.hasFolder),
+});
+
+/**
  * ディレクトリハンドル保存用 IndexedDB を開く。
  * @returns {Promise<IDBDatabase>} DBインスタンス。
  */
@@ -93,6 +108,34 @@ const getPresetHandle = async (presetId) => {
     req.onsuccess = () => resolve(req.result ?? null);
     req.onerror = () => reject(req.error);
   }).finally(() => db.close());
+};
+
+/**
+ * 画像保存先ルートフォルダを解決し、書き込み可能か検証する。
+ * @returns {Promise<FileSystemDirectoryHandle>} 書き込み可能なディレクトリハンドル。
+ * @throws {Error} フォルダ未設定/ハンドル消失/権限不足時。
+ */
+const getImageFolderHandle = async () => {
+  const stored = await chrome.storage.local.get(["imageFolderConfig"]);
+  const imageFolderConfig = sanitizeImageFolderConfig(
+    stored.imageFolderConfig ?? DEFAULT_IMAGE_FOLDER_CONFIG
+  );
+
+  if (!imageFolderConfig.hasFolder) {
+    throw new Error(IMAGE_FOLDER_REQUIRED_ERROR);
+  }
+
+  const handle = await getPresetHandle(IMAGE_FOLDER_HANDLE_KEY);
+  if (!handle) {
+    throw new Error("画像保存先フォルダが見つかりません。オプション画面からフォルダを再選択してください。");
+  }
+
+  const permission = await handle.queryPermission({ mode: "readwrite" });
+  if (permission !== "granted") {
+    throw new Error("画像保存先フォルダへのアクセス権限がありません。オプション画面からフォルダを再選択してください。");
+  }
+
+  return handle;
 };
 
 /**
@@ -167,6 +210,62 @@ const downloadMarkdownByPreset = async ({ markdown, articleUrl, downloadPreset }
 };
 
 /**
+ * 画像URLからバイナリを取得する。
+ * @param {string} url - 画像URL。
+ * @returns {Promise<Uint8Array>} 画像バイナリ。
+ */
+const fetchImageBytes = async (url) => {
+  const response = await fetch(String(url), { credentials: "omit" });
+  if (!response.ok) {
+    throw new Error(`画像の取得に失敗しました（HTTP ${response.status}）。`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+};
+
+/**
+ * 画像ファイル群を note ID フォルダ配下へ保存する。
+ * @param {{images: {filename: string, url: string}[], noteId: string}} params - 保存パラメータ。
+ * @returns {Promise<{savedCount: number, filenames: string[]}>} 保存結果。
+ */
+const saveImagesForArticle = async ({ images, noteId }) => {
+  const rootHandle = await getImageFolderHandle();
+  const noteFolderName = String(noteId ?? "").trim() || "note-article";
+  const noteFolderHandle = await rootHandle.getDirectoryHandle(noteFolderName, { create: true });
+  const filenames = [];
+  const failures = [];
+
+  for (const image of images ?? []) {
+    const filename = String(image?.filename ?? "").trim();
+    const url = String(image?.url ?? "").trim();
+    if (!filename || !url) {
+      continue;
+    }
+
+    try {
+      const bytes = await fetchImageBytes(url);
+      const fileHandle = await noteFolderHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(bytes);
+      await writable.close();
+      filenames.push(`${noteFolderName}/${filename}`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "不明なエラー";
+      failures.push(`${filename}: ${reason}`);
+    }
+  }
+
+  if (filenames.length === 0 && failures.length > 0) {
+    throw new Error(`画像の保存に失敗しました。\n${failures.join("\n")}`);
+  }
+
+  if (failures.length > 0) {
+    console.warn("[note→Markdown] 一部の画像保存に失敗:", failures);
+  }
+
+  return { savedCount: filenames.length, filenames };
+};
+
+/**
  * popup/content からのメッセージを受け取り、保存処理を実行して結果を返す。
  */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -181,6 +280,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: true, ...result });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "ダウンロードに失敗しました。";
+        sendResponse({ ok: false, error: errorMessage });
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "saveImagesForArticle") {
+    void (async () => {
+      try {
+        const result = await saveImagesForArticle({
+          images: message.images ?? [],
+          noteId: message.noteId ?? filenameFromNoteUrl(message.articleUrl ?? ""),
+        });
+        sendResponse({ ok: true, ...result });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "画像の保存に失敗しました。";
         sendResponse({ ok: false, error: errorMessage });
       }
     })();

@@ -11,7 +11,7 @@
   <main class="container">
     <h1 class="page-title">設定</h1>
     <p class="hint page-intro">
-      popup から変換する際の保存先・タグ・Obsidian 向けオプションを管理します。
+      popup から変換する際の保存先・タグ・画像・Obsidian 向けオプションを管理します。
     </p>
 
     <section class="settings-section" aria-labelledby="presetSectionTitle">
@@ -59,6 +59,40 @@
             <button id="preset3Clear" type="button" class="ghost">解除</button>
           </div>
         </article>
+      </div>
+    </section>
+
+    <section class="settings-section" aria-labelledby="imageImportSectionTitle">
+      <h2 id="imageImportSectionTitle" class="settings-section-title">画像取込方式</h2>
+      <p class="hint inline">
+        変換時の画像の扱いを選びます。画像ダウンロードを選ぶ場合は、Markdown 保存先とは別の画像保存先フォルダを設定してください（必須）。
+      </p>
+      <div class="settings-card">
+        <div class="image-import-options" role="radiogroup" aria-label="画像取込方式">
+          <label class="radio-row">
+            <input type="radio" name="imageImportMode" value="url" checked />
+            <span>note URL参照</span>
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="imageImportMode" value="download" />
+            <span>画像ダウンロード（note ID フォルダ内に img1.png 形式で保存）</span>
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="imageImportMode" value="base64" />
+            <span>Base64埋込</span>
+          </label>
+        </div>
+        <div id="imageFolderField" class="image-folder-field hidden">
+          <div class="folder-row">
+            <span id="imageFolderLabel" class="folder-label">未設定（フォルダ未選択）</span>
+            <button id="imageFolderPick" type="button">フォルダを選択</button>
+            <button id="imageFolderClear" type="button" class="ghost">解除</button>
+          </div>
+          <p class="hint inline">
+            指定フォルダ配下に note ID のフォルダを作成し、その中へ画像を保存します。Markdown からは <code>{note ID}/img1.png</code> 形式で参照します。
+          </p>
+        </div>
+        <div id="imageImportStatus" class="status" role="status" aria-live="polite"></div>
       </div>
     </section>
 

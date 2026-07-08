@@ -524,6 +524,91 @@ const normalizeUserTags = (tags, maxTags = 5) => {
   return normalized;
 };
 
+const IMAGE_IMPORT_MODES = ["url", "download", "base64"];
+
+/**
+ * 画像取込方式を正規化する。
+ * @param {unknown} mode - 入力値。
+ * @returns {"url"|"download"|"base64"} 正規化後の方式。
+ */
+const normalizeImageImportMode = (mode) =>
+  IMAGE_IMPORT_MODES.includes(mode) ? mode : "url";
+
+/**
+ * オプション画面で設定された画像取込方式を storage から取得する。
+ * @returns {Promise<{imageImportMode: "url"|"download"|"base64", imageFolderConfig: {folderLabel: string, hasFolder: boolean}}>}
+ */
+const getStoredImageImportSettings = async () => {
+  const stored = await chrome.storage.local.get(["imageImportMode", "imageFolderConfig"]);
+  return {
+    imageImportMode: normalizeImageImportMode(stored.imageImportMode),
+    imageFolderConfig: {
+      folderLabel: String(stored.imageFolderConfig?.folderLabel ?? "").trim(),
+      hasFolder: Boolean(stored.imageFolderConfig?.hasFolder),
+    },
+  };
+};
+
+/**
+ * note記事URLから note ID フォルダ名を返す。
+ * @param {string} articleUrl - 記事URL。
+ * @returns {string} フォルダ名。
+ */
+const noteFolderNameFromUrl = (articleUrl) => {
+  const noteId = NoteToMarkdown.extractNoteIdFromUrl(articleUrl);
+  if (!noteId) {
+    return "note-article";
+  }
+  return noteId.replace(/[^\p{Letter}\p{Number}_-]+/gu, "-").replace(/^-+|-+$/g, "") || "note-article";
+};
+
+/**
+ * 画像ファイルを note ID フォルダ配下へ保存する。
+ * @param {{filename: string, url: string}[]} images - 保存対象画像。
+ * @param {string} articleUrl - 元記事URL。
+ * @returns {Promise<void>}
+ */
+const saveImages = async (images, articleUrl) => {
+  if (!images.length) {
+    return;
+  }
+  const response = await chrome.runtime.sendMessage({
+    type: "saveImagesForArticle",
+    images,
+    noteId: noteFolderNameFromUrl(articleUrl),
+    articleUrl,
+  });
+  if (!response?.ok) {
+    throw new Error(response?.error ?? "画像の保存に失敗しました。");
+  }
+};
+
+/**
+ * 画像取込方式に応じて Markdown 内の画像を処理する。
+ * @param {string} markdown - 変換済みMarkdown。
+ * @param {string} articleUrl - 元記事URL。
+ * @returns {Promise<string>} 処理後Markdown。
+ */
+const finalizeMarkdownImages = async (markdown, articleUrl) => {
+  const imageSettings = await getStoredImageImportSettings();
+
+  if (imageSettings.imageImportMode === "url") {
+    return markdown;
+  }
+
+  const noteFolderName = noteFolderNameFromUrl(articleUrl);
+  const processed = await NoteToMarkdown.processMarkdownImages(markdown, {
+    imageImportMode: imageSettings.imageImportMode,
+    imagePathPrefix: imageSettings.imageImportMode === "download" ? `${noteFolderName}/` : "",
+  });
+
+  if (imageSettings.imageImportMode === "download") {
+    await saveImages(processed.images, articleUrl);
+  }
+
+  return processed.markdown;
+};
+
 /**
  * Markdown文字列をクリップボードへコピーする。
  * @param {string} text - コピー対象文字列。
@@ -591,6 +676,7 @@ const convertPickedArticle = async (url, options = {}) => {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const conversionOptions = await getConversionOptions();
   const result = NoteToMarkdown.convertNotePageToMarkdown(doc, url, conversionOptions);
+  result.markdown = await finalizeMarkdownImages(result.markdown, url);
 
   if (pickContext.outputMode === "download") {
     const downloadResponse = await chrome.runtime.sendMessage({
@@ -783,6 +869,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
     pickedArticleUrl = url;
     sendResponse({ ok: true });
+    return false;
+  }
+
+  if (message?.type === "getArticleTitle") {
+    if (!isNoteArticleUrl(location.href)) {
+      sendResponse({ ok: false, error: "note.com の記事ページ（/n/...）で開いてください。" });
+      return false;
+    }
+    try {
+      const title = NoteToMarkdown.extractTitleFromDocument(document);
+      sendResponse({ ok: true, title });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "タイトルを取得できませんでした。";
+      sendResponse({ ok: false, error: errorMessage });
+    }
     return false;
   }
 

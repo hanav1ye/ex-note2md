@@ -171,6 +171,33 @@ button.ghost {
   accent-color: var(--accent);
 }
 
+.image-import-options {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.radio-row input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.image-folder-field {
+  margin-top: 12px;
+}
+
+.image-folder-field.hidden {
+  display: none;
+}
+
 .tag-add-row {
   display: grid;
   grid-template-columns: 1fr auto;

@@ -157,8 +157,39 @@ body {
   outline-offset: -2px;
 }
 
+.tab-field,
 .url-field {
   margin-top: 10px;
+}
+
+.tab-field.hidden {
+  display: none;
+}
+
+.tab-field-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sky-600);
+}
+
+.tab-article-title {
+  margin: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--surface);
+  color: var(--text);
+  word-break: break-word;
+}
+
+.tab-article-title.error {
+  color: var(--error);
+  border-color: rgba(201, 123, 138, 0.45);
+  background: #fff8fa;
 }
 
 .url-field.hidden {

@@ -3,12 +3,18 @@ const FOLDER_PRESET_IDS = ["preset1", "preset2", "preset3"];
 const DOWNLOAD_PRESET_IDS = [...FOLDER_PRESET_IDS];
 const PRESET_FOLDER_REQUIRED_ERROR =
   "ダウンロードには保存先プリセットのフォルダ設定が必要です。設定（歯車）から「保存先プリセット設定」でフォルダを選択してください。";
+const IMAGE_FOLDER_REQUIRED_ERROR =
+  "画像ダウンロードには画像保存先フォルダの設定が必要です。オプション画面の「画像取込方式」でフォルダを選択してください。";
+const IMAGE_IMPORT_MODES = ["url", "download", "base64"];
+const DEFAULT_IMAGE_FOLDER_CONFIG = { folderLabel: "", hasFolder: false };
 const $ = (id) => document.getElementById(id);
 
 const statusEl = $("status");
 const convertBtn = $("convertBtn");
 const settingsBtn = $("settingsBtn");
 const urlFieldEl = $("urlField");
+const tabFieldEl = $("tabField");
+const tabArticleTitleEl = $("tabArticleTitle");
 const articleUrlEl = $("articleUrl");
 const pickUrlBtn = $("pickUrlBtn");
 const pickMultiBtn = $("pickMultiBtn");
@@ -32,6 +38,8 @@ const STORAGE_KEY_NAMES = [
   "articleUrl",
   "tags",
   "downloadPreset",
+  "imageImportMode",
+  "imageFolderConfig",
   "presetConfigs",
   "presetTagCandidates",
 ];
@@ -73,6 +81,8 @@ const getActiveNoteTab = async () => {
  */
 const startLinkPickMode = async () => {
   try {
+    const imageSettings = await getStoredImageSettings();
+    assertImageFolderReady(imageSettings);
     const tab = await getActiveNoteTab();
     if (!tab.url.startsWith("https://note.com/")) {
       throw new Error("note.com ページを開いてから「選択する」を押してください。");
@@ -180,6 +190,62 @@ const updateUrlFieldVisibility = () => {
   urlFieldEl.classList.toggle("hidden", getSelectedSourceMode() !== "url");
 };
 
+/** 現在のタブ欄の表示/非表示を切り替える。 */
+const updateTabFieldVisibility = () => {
+  tabFieldEl.classList.toggle("hidden", getSelectedSourceMode() !== "tab");
+};
+
+/**
+ * ブラウザタブの title 属性から記事タイトルを推定する。
+ * @param {string} tabTitle - タブタイトル。
+ * @returns {string} 推定タイトル。
+ */
+const sanitizeTabTitle = (tabTitle) => tabTitle.replace(/\s*[｜|]\s*[^｜|]+$/, "").trim();
+
+/**
+ * 現在のタブの記事タイトルを表示欄へ反映する。
+ */
+const updateCurrentTabArticleTitle = async () => {
+  if (!tabArticleTitleEl || getSelectedSourceMode() !== "tab") {
+    return;
+  }
+
+  tabArticleTitleEl.textContent = "取得中…";
+  tabArticleTitleEl.classList.remove("error");
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !tab.url) {
+      throw new Error("アクティブなタブを取得できません。");
+    }
+    if (!isNoteArticleUrl(tab.url)) {
+      throw new Error("note.com の記事ページ（/n/...）で開いてください。");
+    }
+
+    let title = "";
+    try {
+      const response = await chrome.tabs.sendMessage(tab.id, { type: "getArticleTitle" });
+      if (response?.ok && response.title) {
+        title = response.title;
+      } else {
+        throw new Error(response?.error ?? "タイトルを取得できませんでした。");
+      }
+    } catch {
+      const fallbackTitle = sanitizeTabTitle(tab.title ?? "");
+      if (!fallbackTitle) {
+        throw new Error("ページを再読み込みしてから、もう一度お試しください。");
+      }
+      title = fallbackTitle;
+    }
+
+    tabArticleTitleEl.textContent = title;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "タイトルを取得できませんでした。";
+    tabArticleTitleEl.textContent = message;
+    tabArticleTitleEl.classList.add("error");
+  }
+};
+
 /** ダウンロード先選択欄の表示/非表示を切り替える。 */
 const updateDownloadLocationVisibility = () => {
   const isDownload = getSelectedOutputMode() === "download";
@@ -187,6 +253,38 @@ const updateDownloadLocationVisibility = () => {
   if (isDownload) {
     updateDownloadPresetHint();
   }
+};
+
+/**
+ * オプション画面で設定された画像取込方式を storage から取得する。
+ * @returns {Promise<{imageImportMode: "url"|"download"|"base64", imageFolderConfig: {folderLabel: string, hasFolder: boolean}}>}
+ */
+const getStoredImageSettings = async () => {
+  if (!chrome.storage?.local) {
+    return { imageImportMode: "url", imageFolderConfig: { ...DEFAULT_IMAGE_FOLDER_CONFIG } };
+  }
+  const stored = await chrome.storage.local.get(["imageImportMode", "imageFolderConfig"]);
+  const imageImportMode = IMAGE_IMPORT_MODES.includes(stored.imageImportMode)
+    ? stored.imageImportMode
+    : "url";
+  const imageFolderConfig = {
+    folderLabel: String(stored.imageFolderConfig?.folderLabel ?? "").trim(),
+    hasFolder: Boolean(stored.imageFolderConfig?.hasFolder),
+  };
+  return { imageImportMode, imageFolderConfig };
+};
+
+/**
+ * note記事URLから note ID フォルダ名を返す。
+ * @param {string} articleUrl - 記事URL。
+ * @returns {string} フォルダ名。
+ */
+const noteFolderNameFromUrl = (articleUrl) => {
+  const noteId = NoteToMarkdown.extractNoteIdFromUrl(articleUrl);
+  if (!noteId) {
+    return "note-article";
+  }
+  return noteId.replace(/[^\p{Letter}\p{Number}_-]+/gu, "-").replace(/^-+|-+$/g, "") || "note-article";
 };
 
 /**
@@ -351,6 +449,21 @@ const assertDownloadPresetReady = () => {
   throw new Error(PRESET_FOLDER_REQUIRED_ERROR);
 };
 
+/**
+ * 画像ダウンロード前に画像保存先フォルダが設定済みか検証する。
+ * @param {{imageImportMode?: string, imageFolderConfig?: {hasFolder?: boolean}}} imageSettings - 画像設定。
+ * @throws {Error} 未設定時。
+ */
+const assertImageFolderReady = (imageSettings) => {
+  if (imageSettings.imageImportMode !== "download") {
+    return;
+  }
+  if (imageSettings.imageFolderConfig?.hasFolder) {
+    return;
+  }
+  throw new Error(IMAGE_FOLDER_REQUIRED_ERROR);
+};
+
 /** 「プリセット未設定」ヒントの表示状態を更新する。 */
 const updateDownloadPresetHint = () => {
   if (!downloadPresetHintEl) {
@@ -408,8 +521,12 @@ const savePreferences = async () => {
 const loadPreferences = async () => {
   if (!chrome.storage?.local) {
     updateUrlFieldVisibility();
+    updateTabFieldVisibility();
     updateDownloadLocationVisibility();
     renderPresetOptions();
+    if (getSelectedSourceMode() === "tab") {
+      void updateCurrentTabArticleTitle();
+    }
     return;
   }
   try {
@@ -445,8 +562,12 @@ const loadPreferences = async () => {
     renderTagSelector([]);
   }
   updateUrlFieldVisibility();
+  updateTabFieldVisibility();
   updateDownloadLocationVisibility();
   renderPresetOptions();
+  if (getSelectedSourceMode() === "tab") {
+    void updateCurrentTabArticleTitle();
+  }
 };
 
 /**
@@ -481,6 +602,52 @@ const copyMarkdown = async (text) => {
  */
 const getSelectedDownloadPreset = () =>
   DOWNLOAD_PRESET_IDS.includes(downloadPresetEl.value) ? downloadPresetEl.value : "preset1";
+
+/**
+ * 画像ファイルを note ID フォルダ配下へ保存する。
+ * @param {{filename: string, url: string}[]} images - 保存対象画像。
+ * @param {string} articleUrl - 元記事URL。
+ * @returns {Promise<void>}
+ */
+const saveImages = async (images, articleUrl) => {
+  if (!images.length) {
+    return;
+  }
+  const response = await chrome.runtime.sendMessage({
+    type: "saveImagesForArticle",
+    images,
+    noteId: noteFolderNameFromUrl(articleUrl),
+    articleUrl,
+  });
+  if (!response?.ok) {
+    throw new Error(response?.error ?? "画像の保存に失敗しました。");
+  }
+};
+
+/**
+ * 画像取込方式に応じて Markdown 内の画像を処理する。
+ * @param {string} markdown - 変換済みMarkdown。
+ * @param {string} articleUrl - 元記事URL。
+ * @returns {Promise<string>} 処理後Markdown。
+ */
+const finalizeMarkdownImages = async (markdown, articleUrl) => {
+  const imageSettings = await getStoredImageSettings();
+  if (imageSettings.imageImportMode === "url") {
+    return markdown;
+  }
+
+  const noteFolderName = noteFolderNameFromUrl(articleUrl);
+  const processed = await NoteToMarkdown.processMarkdownImages(markdown, {
+    imageImportMode: imageSettings.imageImportMode,
+    imagePathPrefix: imageSettings.imageImportMode === "download" ? `${noteFolderName}/` : "",
+  });
+
+  if (imageSettings.imageImportMode === "download") {
+    await saveImages(processed.images, articleUrl);
+  }
+
+  return processed.markdown;
+};
 
 /**
  * backgroundへ保存要求を送り、結果を受け取る。
@@ -618,9 +785,11 @@ const convert = async () => {
     const sourceMode = getSelectedSourceMode();
     const articleUrl = await resolveArticleUrlForConvert(sourceMode);
 
+    const imageSettings = await getStoredImageSettings();
     if (getSelectedOutputMode() === "download") {
       assertDownloadPresetReady();
     }
+    assertImageFolderReady(imageSettings);
 
     let result;
     if (sourceMode === "url") {
@@ -629,6 +798,7 @@ const convert = async () => {
       result = await convertCurrentTab();
     }
 
+    result.markdown = await finalizeMarkdownImages(result.markdown, result.articleUrl);
     await applyOutputAction(result.title, result.markdown, result.articleUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : "変換に失敗しました。";
@@ -641,7 +811,16 @@ const convert = async () => {
 sourceModeInputs.forEach((input) => {
   input.addEventListener("change", () => {
     updateUrlFieldVisibility();
+    updateTabFieldVisibility();
+    if (getSelectedSourceMode() === "tab") {
+      void updateCurrentTabArticleTitle();
+    }
     void savePreferences();
+  });
+  input.addEventListener("click", () => {
+    if (input.value === "tab" && input.checked) {
+      void updateCurrentTabArticleTitle();
+    }
   });
 });
 
@@ -673,14 +852,18 @@ pickMultiBtn.addEventListener("click", () => {
     setStatus("一括はダウンロードのみ対応です。変換後をダウンロードにしてください。", "error");
     return;
   }
-  try {
-    assertDownloadPresetReady();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : PRESET_FOLDER_REQUIRED_ERROR;
-    setStatus(message, "error");
-    return;
-  }
-  void startMultiPickMode();
+  void (async () => {
+    try {
+      assertDownloadPresetReady();
+      const imageSettings = await getStoredImageSettings();
+      assertImageFolderReady(imageSettings);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : PRESET_FOLDER_REQUIRED_ERROR;
+      setStatus(message, "error");
+      return;
+    }
+    void startMultiPickMode();
+  })();
 });
 
 convertBtn.addEventListener("click", () => {
@@ -697,6 +880,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (typeof message.url === "string" && isNoteArticleUrl(message.url)) {
     setSelectedRadio(sourceModeInputs, "url");
     updateUrlFieldVisibility();
+    updateTabFieldVisibility();
     articleUrlEl.value = message.url;
     setStatus("記事URLを取得しました。処理を実行中…", "ok");
     void savePreferences();

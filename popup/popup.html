@@ -12,7 +12,6 @@
     <div class="popup-header-text">
       <h1>note → Markdown</h1>
       <p class="hint">note 記事を Markdown に変換します</p>
-      <p class="hint">（画像のダウンロードは行いません）。</p>
     </div>
     <button id="settingsBtn" type="button" class="settings-button" aria-label="設定" title="設定">
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -33,6 +32,10 @@
         <input type="radio" name="sourceMode" value="url" />
         <span>URL を指定</span>
       </label>
+    </div>
+    <div id="tabField" class="tab-field">
+      <p class="tab-field-label">処理対象</p>
+      <p id="tabArticleTitle" class="tab-article-title" aria-live="polite">—</p>
     </div>
     <div id="urlField" class="url-field hidden">
       <label for="articleUrl">記事 URL</label>
