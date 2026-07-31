@@ -2,7 +2,6 @@
 let pickModeActive = false;
 let hoverTarget = null;
 let previousCursor = "";
-let pickedArticleUrl = "";
 let pickContext = {
   outputMode: "copy",
   downloadPreset: "preset1",
@@ -427,12 +426,21 @@ const handlePickClick = (event) => {
   }
 
   const url = new URL(anchor.getAttribute("href"), location.origin).toString();
-  pickedArticleUrl = url;
   endPickMode();
-  void chrome.runtime.sendMessage({
-    type: "pickedArticleUrl",
-    url,
-  });
+
+  // popup はページクリックで閉じるため、実行はこちらで完結させる。
+  // popup が開いたままの場合の URL 欄反映は補助的な通知に留める（受信者不在は無視）。
+  chrome.runtime.sendMessage({ type: "pickedArticleUrl", url }).catch(() => {});
+
+  showPageToast("記事を処理しています…", "ok");
+  void (async () => {
+    try {
+      await convertPickedArticle(url);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "処理に失敗しました。";
+      showPageToast(`処理失敗: ${errorMessage}`, "error");
+    }
+  })();
 };
 
 /**
@@ -549,18 +557,7 @@ const getStoredImageImportSettings = async () => {
   };
 };
 
-/**
- * note記事URLから note ID フォルダ名を返す。
- * @param {string} articleUrl - 記事URL。
- * @returns {string} フォルダ名。
- */
-const noteFolderNameFromUrl = (articleUrl) => {
-  const noteId = NoteToMarkdown.extractNoteIdFromUrl(articleUrl);
-  if (!noteId) {
-    return "note-article";
-  }
-  return noteId.replace(/[^\p{Letter}\p{Number}_-]+/gu, "-").replace(/^-+|-+$/g, "") || "note-article";
-};
+const noteFolderNameFromUrl = (articleUrl) => NoteToMarkdown.noteFolderNameFromUrl(articleUrl);
 
 /**
  * 画像ファイルを note ID フォルダ配下へ保存する。
@@ -808,7 +805,12 @@ const executeMultiPickNow = async () => {
 };
 
 /** popup/background からのメッセージを受け取り、モード制御や変換処理を実行する。 */
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // 自拡張（popup / background）以外からのメッセージは処理しない。
+  if (sender?.id !== chrome.runtime.id) {
+    return false;
+  }
+
   if (message?.type === "startLinkPickMode") {
     pickContext = {
       outputMode: message.outputMode === "download" ? "download" : "copy",
@@ -829,45 +831,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       obsidianLinkify: Boolean(message.obsidianLinkify),
     };
     startMultiPickMode();
-    sendResponse({ ok: true });
-    return false;
-  }
-
-  if (message?.type === "runPickedArticleAction") {
-    void (async () => {
-      try {
-        const result = await convertPickedArticle(pickedArticleUrl);
-        sendResponse({ ok: true, ...result });
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "処理に失敗しました。";
-        showPageToast(`処理失敗: ${errorMessage}`, "error");
-        sendResponse({ ok: false, error: errorMessage });
-      }
-    })();
-    return true;
-  }
-
-  if (message?.type === "runMultiPickedArticleAction") {
-    void (async () => {
-      try {
-        const result = await runMultiPickedArticleAction();
-        sendResponse(result);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "処理に失敗しました。";
-        showPageToast(`処理失敗: ${errorMessage}`, "error");
-        sendResponse({ ok: false, error: errorMessage });
-      }
-    })();
-    return true;
-  }
-
-  if (message?.type === "setPickedArticleUrl") {
-    const url = String(message.url ?? "");
-    if (!isNoteArticleUrl(url)) {
-      sendResponse({ ok: false, error: "有効な記事URLではありません。" });
-      return false;
-    }
-    pickedArticleUrl = url;
     sendResponse({ ok: true });
     return false;
   }

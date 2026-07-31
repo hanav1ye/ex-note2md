@@ -16,6 +16,9 @@ const IMAGE_FOLDER_REQUIRED_ERROR =
 
 const DEFAULT_IMAGE_FOLDER_CONFIG = { folderLabel: "", hasFolder: false };
 
+// 画像取得を manifest の host_permissions と同じ範囲に限定する。
+const ALLOWED_IMAGE_HOSTS = new Set(["assets.st-note.com", "note.com"]);
+
 /**
  * UI表示用のプリセット名を返す。
  * @param {string} presetId - 対象プリセットID。
@@ -31,17 +34,47 @@ const presetDisplayName = (presetId, config) =>
  * @param {string} url - note記事URL。
  * @returns {string} 拡張子なしファイル名。
  */
+const sanitizeFileBaseName = (value) =>
+  String(value ?? "")
+    .replace(/[^\p{Letter}\p{Number}_-]+/gu, "-")
+    .replace(/^-+|-+$/g, "") || "note-article";
+
 const filenameFromNoteUrl = (url) => {
   try {
     const parsed = new URL(url);
-    const noteIdMatch = parsed.pathname.match(/\/n\/([^/]+)/);
-    const noteId = noteIdMatch?.[1];
-    if (!noteId) {
-      return "note-article";
-    }
-    return noteId.replace(/[^\p{Letter}\p{Number}_-]+/gu, "-").replace(/^-+|-+$/g, "") || "note-article";
+    const noteId = parsed.pathname.match(/\/n\/([^/]+)/)?.[1];
+    return noteId ? sanitizeFileBaseName(noteId) : "note-article";
   } catch {
     return "note-article";
+  }
+};
+
+/**
+ * 画像ファイル名を保存可能な形へ正規化する。
+ * パス区切りを含む値は受け付けない。
+ * @param {string} filename - 受信したファイル名。
+ * @returns {string} 正規化後ファイル名。不正な場合は空文字。
+ */
+const sanitizeImageFilename = (filename) => {
+  const raw = String(filename ?? "").trim();
+  if (!raw || raw.includes("/") || raw.includes("\\") || raw.includes("..")) {
+    return "";
+  }
+  const match = raw.match(/^([\p{Letter}\p{Number}_-]+)\.([a-zA-Z0-9]{1,5})$/u);
+  return match ? `${match[1]}.${match[2].toLowerCase()}` : "";
+};
+
+/**
+ * 画像取得URLが許可ホストの https URL か検証する。
+ * @param {string} url - 取得対象URL。
+ * @returns {boolean} 許可される場合 true。
+ */
+const isAllowedImageUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && ALLOWED_IMAGE_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
   }
 };
 
@@ -215,6 +248,9 @@ const downloadMarkdownByPreset = async ({ markdown, articleUrl, downloadPreset }
  * @returns {Promise<Uint8Array>} 画像バイナリ。
  */
 const fetchImageBytes = async (url) => {
+  if (!isAllowedImageUrl(url)) {
+    throw new Error("許可されていない画像URLです。");
+  }
   const response = await fetch(String(url), { credentials: "omit" });
   if (!response.ok) {
     throw new Error(`画像の取得に失敗しました（HTTP ${response.status}）。`);
@@ -229,13 +265,13 @@ const fetchImageBytes = async (url) => {
  */
 const saveImagesForArticle = async ({ images, noteId }) => {
   const rootHandle = await getImageFolderHandle();
-  const noteFolderName = String(noteId ?? "").trim() || "note-article";
+  const noteFolderName = sanitizeFileBaseName(noteId);
   const noteFolderHandle = await rootHandle.getDirectoryHandle(noteFolderName, { create: true });
   const filenames = [];
   const failures = [];
 
   for (const image of images ?? []) {
-    const filename = String(image?.filename ?? "").trim();
+    const filename = sanitizeImageFilename(image?.filename);
     const url = String(image?.url ?? "").trim();
     if (!filename || !url) {
       continue;
@@ -268,7 +304,12 @@ const saveImagesForArticle = async ({ images, noteId }) => {
 /**
  * popup/content からのメッセージを受け取り、保存処理を実行して結果を返す。
  */
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // 自拡張のページ / content script 以外からのメッセージは処理しない。
+  if (sender?.id !== chrome.runtime.id) {
+    return false;
+  }
+
   if (message?.type === "downloadMarkdownByPreset") {
     void (async () => {
       try {

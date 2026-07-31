@@ -212,12 +212,6 @@ const renderImageFolderField = () => {
 };
 
 /**
- * フォルダ設定済みプリセットID一覧を返す。
- * @returns {string[]} 利用可能プリセットID。
- */
-const getConfiguredPresetIds = () => PRESET_IDS.filter((id) => presetConfigs[id]?.hasFolder);
-
-/**
  * タグ入力を正規化する（先頭#除去）。
  * @param {string} value - 入力値。
  * @returns {string} 正規化済みタグ。

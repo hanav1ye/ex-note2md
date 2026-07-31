@@ -5,6 +5,12 @@
   "description": "Build helpers for ex-note2md extension.",
   "scripts": {
     "build:dist": "node scripts/build-dist.mjs",
+    "check:parity": "node scripts/check-conversion-parity.mjs",
     "update-like-count": "node scripts/update-like-count.mjs"
+  },
+  "devDependencies": {
+    "clean-css-cli": "^5.6.3",
+    "jsdom": "^29.1.1",
+    "terser": "^5.49.0"
   }
 }

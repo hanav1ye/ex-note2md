@@ -3,6 +3,11 @@
 `ex-note2md` は、note.com の記事を Markdown に変換する Chrome / Edge 向け拡張機能です。  
 画像は **note URL 参照**（既定）、**ローカル保存**（`img1.png` 形式）、**Base64 埋込** から選べます。
 
+> **本拡張機能は note株式会社とは関係のない非公式ツールです。**  
+> 変換したコンテンツの利用は、note の利用規約および著作権法の範囲内で行ってください。  
+> 保存先フォルダの指定に File System Access API を使うため、**デスクトップ版 Chrome / Edge（Chrome 109 以降）専用**です。  
+> 変換・設定データは端末内（`chrome.storage.local` / IndexedDB）にのみ保存され、外部へ送信されることはありません。
+
 ## できること
 
 - note 記事ページ、または記事 URL から Markdown 生成
@@ -74,7 +79,7 @@ Downloads 直下への保存は想定せず、必要ならサブフォルダ（�
 
 note.com ページ上で:
 
-- **選択する**: 記事リンクを 1 本クリックして即実行
+- **選択する**: 記事リンクを 1 本クリックして即実行（クリックで popup は閉じますが、処理はページ側で完結し結果はトーストで表示されます）
 - **複数選択**: 複数リンクを選んで一括実行
 - **一覧を全選択**: 一覧コンテナ配下の記事リンクをまとめて選択
 
@@ -144,6 +149,16 @@ File System Access API で選択した保存先フォルダのハンドルを保
 | `popup/` | 変換 UI |
 | `options/` | 保存先プリセット / タグ候補 / タグセットプリセット / Obsidian 設定 |
 | `manifest.json` | Manifest V3 定義 |
+| `scripts/build-dist.mjs` | 配布用 `dist/` の生成（minify） |
+| `scripts/check-conversion-parity.mjs` | タブ変換 / URL 変換の出力一致チェック |
+
+## 開発コマンド
+
+```bash
+npm install
+npm run check:parity   # タブ変換とURL変換の出力が一致するか検証
+npm run build:dist     # 配布用 dist/ を生成
+```
 
 ## ベース実装
 

@@ -26,12 +26,12 @@ cpSync("options/options.html", `${DIST_DIR}/options/options.html`);
 cpSync("icons", `${DIST_DIR}/icons`, { recursive: true });
 
 /** JavaScript/CSS を minify して dist 配下へ出力する。 */
-run('npx --yes terser "background.js" -c -m -o "dist/background.js"');
-run('npx --yes terser "content/content.js" -c -m -o "dist/content/content.js"');
-run('npx --yes terser "lib/noteToMarkdown.js" -c -m -o "dist/lib/noteToMarkdown.js"');
-run('npx --yes terser "popup/popup.js" -c -m -o "dist/popup/popup.js"');
-run('npx --yes terser "options/options.js" -c -m -o "dist/options/options.js"');
-run('npx --yes clean-css-cli -o "dist/popup/popup.css" "popup/popup.css"');
-run('npx --yes clean-css-cli -o "dist/options/options.css" "options/options.css"');
+run('npx --no-install terser "background.js" -c -m -o "dist/background.js"');
+run('npx --no-install terser "content/content.js" -c -m -o "dist/content/content.js"');
+run('npx --no-install terser "lib/noteToMarkdown.js" -c -m -o "dist/lib/noteToMarkdown.js"');
+run('npx --no-install terser "popup/popup.js" -c -m -o "dist/popup/popup.js"');
+run('npx --no-install terser "options/options.js" -c -m -o "dist/options/options.js"');
+run('npx --no-install clean-css-cli -o "dist/popup/popup.css" "popup/popup.css"');
+run('npx --no-install clean-css-cli -o "dist/options/options.css" "options/options.css"');
 
 console.log("dist build complete");

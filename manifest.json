@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "note to Markdown",
   "version": "1.0.0",
-  "description": "note.com の記事を Markdown に変換します。画像は URL 参照・ローカル保存・Base64 埋込から選べます。",
+  "description": "【非公式】note.com の記事を Markdown に変換します。画像は URL 参照・ローカル保存・Base64 埋込から選べます。",
+  "minimum_chrome_version": "109",
   "permissions": ["activeTab", "clipboardWrite", "storage"],
   "host_permissions": ["https://note.com/*", "https://assets.st-note.com/*"],
   "background": {

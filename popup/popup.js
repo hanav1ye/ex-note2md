@@ -1,6 +1,5 @@
 // 拡張機能ポップアップ: 変換元・出力先の選択と変換実行
 const FOLDER_PRESET_IDS = ["preset1", "preset2", "preset3"];
-const DOWNLOAD_PRESET_IDS = [...FOLDER_PRESET_IDS];
 const PRESET_FOLDER_REQUIRED_ERROR =
   "ダウンロードには保存先プリセットのフォルダ設定が必要です。設定（歯車）から「保存先プリセット設定」でフォルダを選択してください。";
 const IMAGE_FOLDER_REQUIRED_ERROR =
@@ -33,7 +32,6 @@ const sourceModeInputs = document.querySelectorAll('input[name="sourceMode"]');
 const outputModeInputs = document.querySelectorAll('input[name="outputMode"]');
 
 const MAX_TAGS = 5;
-const PRESET_IDS = [...FOLDER_PRESET_IDS];
 const STORAGE_KEY_NAMES = [
   "sourceMode",
   "outputMode",
@@ -279,18 +277,7 @@ const getStoredImageSettings = async () => {
   return { imageImportMode, imageFolderConfig };
 };
 
-/**
- * note記事URLから note ID フォルダ名を返す。
- * @param {string} articleUrl - 記事URL。
- * @returns {string} フォルダ名。
- */
-const noteFolderNameFromUrl = (articleUrl) => {
-  const noteId = NoteToMarkdown.extractNoteIdFromUrl(articleUrl);
-  if (!noteId) {
-    return "note-article";
-  }
-  return noteId.replace(/[^\p{Letter}\p{Number}_-]+/gu, "-").replace(/^-+|-+$/g, "") || "note-article";
-};
+const noteFolderNameFromUrl = (articleUrl) => NoteToMarkdown.noteFolderNameFromUrl(articleUrl);
 
 /**
  * タグ入力値を正規化する（先頭#を除去）。
@@ -596,7 +583,7 @@ const savePreferences = async () => {
       articleUrl: articleUrlEl.value.trim(),
       tags: getUserTags(),
       selectedTagSetId: tagSetSelectEl?.value ?? "",
-      downloadPreset: DOWNLOAD_PRESET_IDS.includes(downloadPresetEl.value)
+      downloadPreset: FOLDER_PRESET_IDS.includes(downloadPresetEl.value)
         ? downloadPresetEl.value
         : "preset1",
       presetConfigs,
@@ -631,7 +618,7 @@ const loadPreferences = async () => {
     }
     if (
       typeof stored.downloadPreset === "string" &&
-      DOWNLOAD_PRESET_IDS.includes(stored.downloadPreset)
+      FOLDER_PRESET_IDS.includes(stored.downloadPreset)
     ) {
       downloadPresetEl.value = stored.downloadPreset;
     }
@@ -688,7 +675,7 @@ const copyMarkdown = async (text) => {
  * @returns {string} 利用するプリセットID。
  */
 const getSelectedDownloadPreset = () =>
-  DOWNLOAD_PRESET_IDS.includes(downloadPresetEl.value) ? downloadPresetEl.value : "preset1";
+  FOLDER_PRESET_IDS.includes(downloadPresetEl.value) ? downloadPresetEl.value : "preset1";
 
 /**
  * 画像ファイルを note ID フォルダ配下へ保存する。
@@ -783,14 +770,10 @@ const applyOutputAction = async (title, markdown, articleUrl) => {
 
 /**
  * 現在のタブ上で content script に変換実行を依頼する。
+ * @param {chrome.tabs.Tab} tab - 変換対象タブ。
  * @returns {Promise<{title: string, markdown: string, articleUrl: string}>} 変換結果。
  */
-const convertCurrentTab = async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url) {
-    throw new Error("アクティブなタブを取得できません。");
-  }
-
+const convertCurrentTab = async (tab) => {
   let response;
   try {
     const conversionOptions = await getConversionOptions();
@@ -837,11 +820,11 @@ const convertFromUrl = async (url) => {
 };
 
 /**
- * 実行時点の変換対象URLを解決する（URL入力 or アクティブタブ）。
+ * 実行時点の変換対象を解決する（URL入力 or アクティブタブ）。
  * @param {"tab"|"url"} sourceMode - 変換元モード。
- * @returns {Promise<string>} 記事URL。
+ * @returns {Promise<{articleUrl: string, tab: chrome.tabs.Tab|null}>} 記事URLと対象タブ。
  */
-const resolveArticleUrlForConvert = async (sourceMode) => {
+const resolveConvertTarget = async (sourceMode) => {
   if (sourceMode === "url") {
     const url = articleUrlEl.value.trim();
     if (!url) {
@@ -850,7 +833,7 @@ const resolveArticleUrlForConvert = async (sourceMode) => {
     if (!isNoteArticleUrl(url)) {
       throw new Error("note.com の記事 URL（/n/...）を入力してください。");
     }
-    return url;
+    return { articleUrl: url, tab: null };
   }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -860,7 +843,7 @@ const resolveArticleUrlForConvert = async (sourceMode) => {
   if (!isNoteArticleUrl(tab.url)) {
     throw new Error("note.com の記事ページ（/n/...）で開いてください。");
   }
-  return tab.url;
+  return { articleUrl: tab.url, tab };
 };
 
 /** popupのメイン変換処理。 */
@@ -870,7 +853,7 @@ const convert = async () => {
 
   try {
     const sourceMode = getSelectedSourceMode();
-    const articleUrl = await resolveArticleUrlForConvert(sourceMode);
+    const { articleUrl, tab } = await resolveConvertTarget(sourceMode);
 
     const imageSettings = await getStoredImageSettings();
     if (getSelectedOutputMode() === "download") {
@@ -878,12 +861,7 @@ const convert = async () => {
     }
     assertImageFolderReady(imageSettings);
 
-    let result;
-    if (sourceMode === "url") {
-      result = await convertFromUrl(articleUrl);
-    } else {
-      result = await convertCurrentTab();
-    }
+    const result = tab ? await convertCurrentTab(tab) : await convertFromUrl(articleUrl);
 
     result.markdown = await finalizeMarkdownImages(result.markdown, result.articleUrl);
     await applyOutputAction(result.title, result.markdown, result.articleUrl);
@@ -970,10 +948,12 @@ convertBtn.addEventListener("click", () => {
 });
 
 /**
- * content script から返る選択URL通知を受け取り、即時実行フローへつなぐ。
+ * content script が選択した記事URLを受け取り、URL欄へ反映する。
+ * 変換の実行は content script 側で完結するため、ここでは表示更新のみ行う
+ * （ページクリックで popup が閉じた場合はそもそも届かない）。
  */
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "pickedArticleUrl") {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (sender?.id !== chrome.runtime.id || message?.type !== "pickedArticleUrl") {
     return false;
   }
   if (typeof message.url === "string" && isNoteArticleUrl(message.url)) {
@@ -981,32 +961,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     updateUrlFieldVisibility();
     updateTabFieldVisibility();
     articleUrlEl.value = message.url;
-    setStatus("記事URLを取得しました。処理を実行中…", "ok");
+    setStatus("記事URLを取得しました。ページ上で処理を実行しています。", "ok");
     void savePreferences();
-    void (async () => {
-      try {
-        const tab = await getActiveNoteTab();
-        const setResponse = await chrome.tabs.sendMessage(tab.id, {
-          type: "setPickedArticleUrl",
-          url: message.url,
-        });
-        if (!setResponse?.ok) {
-          throw new Error(setResponse?.error ?? "選択URLの保存に失敗しました。");
-        }
-
-        const runResponse = await chrome.tabs.sendMessage(tab.id, {
-          type: "runPickedArticleAction",
-        });
-        if (!runResponse?.ok) {
-          throw new Error(runResponse?.error ?? "処理に失敗しました。");
-        }
-
-        setStatus("");
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "処理に失敗しました。";
-        setStatus(errorMessage, "error");
-      }
-    })();
     sendResponse({ ok: true });
     return false;
   }

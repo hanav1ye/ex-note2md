@@ -1,0 +1,13 @@
+# ローカル生成物・OS ファイル
+.DS_Store
+Thumbs.db
+# 配布用アーカイブ
+*.zip
+*.crx
+dist/
+test/
+node_modules/
+# 作業用メモ（リポジトリ外管理想定）
+sourceCheck*.md
+test*.md
+likeCount-tool.md
