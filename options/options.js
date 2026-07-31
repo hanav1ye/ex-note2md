@@ -4,11 +4,14 @@ const IMAGE_IMPORT_MODES = ["url", "download", "base64"];
 const STORAGE_KEYS = [
   "presetConfigs",
   "presetTagCandidates",
+  "presetTagSets",
   "presetObsidianLinkWords",
   "obsidianLinkify",
   "imageImportMode",
   "imageFolderConfig",
 ];
+const MAX_TAGS_PER_SET = 5;
+const MAX_TAG_SETS = 10;
 const IMAGE_FOLDER_HANDLE_KEY = "imageFolder";
 const DB_NAME = "noteToMarkdownPresets";
 const DB_STORE = "directoryHandles";
@@ -21,6 +24,14 @@ const addTagBtn = $("addTagBtn");
 const openTagBulkModalBtn = $("openTagBulkModalBtn");
 const tagCandidateListEl = $("tagCandidateList");
 const tagCandidateEmptyHintEl = $("tagCandidateEmptyHint");
+const tagSetStatusEl = $("tagSetStatus");
+const tagSetNameInputEl = $("tagSetNameInput");
+const tagSetTagSelectorEl = $("tagSetTagSelector");
+const tagSetTagEmptyHintEl = $("tagSetTagEmptyHint");
+const saveTagSetBtn = $("saveTagSetBtn");
+const cancelTagSetEditBtn = $("cancelTagSetEditBtn");
+const tagSetListEl = $("tagSetList");
+const tagSetEmptyHintEl = $("tagSetEmptyHint");
 const newObsidianWordInputEl = $("newObsidianWordInput");
 const addObsidianWordBtn = $("addObsidianWordBtn");
 const openObsidianBulkModalBtn = $("openObsidianBulkModalBtn");
@@ -47,6 +58,7 @@ const BULK_TARGETS = {
 
 const STATUS_TARGETS = {
   tag: "tag",
+  tagSet: "tagSet",
   obsidian: "obsidian",
   image: "image",
 };
@@ -60,6 +72,8 @@ const DEFAULT_IMAGE_FOLDER_CONFIG = { folderLabel: "", hasFolder: false };
 
 let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
 let presetTagCandidates = [];
+let presetTagSets = [];
+let editingTagSetId = "";
 let presetObsidianLinkWords = [];
 let obsidianLinkifyEnabled = false;
 let imageImportMode = "url";
@@ -74,6 +88,9 @@ let currentBulkTarget = BULK_TARGETS.tag;
 const statusElementByTarget = (target) => {
   if (target === STATUS_TARGETS.obsidian) {
     return obsidianStatusEl;
+  }
+  if (target === STATUS_TARGETS.tagSet) {
+    return tagSetStatusEl;
   }
   if (target === STATUS_TARGETS.image) {
     return imageImportStatusEl;
@@ -221,6 +238,179 @@ const sanitizeTagCandidates = (candidates) => {
     }
   });
   return normalized;
+};
+
+/**
+ * タグセットのIDを生成する。
+ * @returns {string} 一意なタグセットID。
+ */
+const createTagSetId = () => `tagset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+/**
+ * タグセット配列を正規化する（不正値・重複タグ・上限超過を除去）。
+ * @param {unknown[]} sets - 保存値。
+ * @returns {{id: string, name: string, tags: string[]}[]} 正規化済みタグセット一覧。
+ */
+const sanitizeTagSets = (sets) => {
+  const normalized = [];
+  (Array.isArray(sets) ? sets : []).forEach((set) => {
+    const tags = sanitizeTagCandidates(set?.tags).slice(0, MAX_TAGS_PER_SET);
+    const name = String(set?.name ?? "").trim();
+    if (!name || tags.length === 0) {
+      return;
+    }
+    normalized.push({
+      id: String(set?.id ?? "").trim() || createTagSetId(),
+      name,
+      tags,
+    });
+  });
+  return normalized.slice(0, MAX_TAG_SETS);
+};
+
+/**
+ * タグセット編集フォームで現在チェックされているタグを取得する。
+ * @returns {string[]} 選択中タグ。
+ */
+const getTagSetFormTags = () => {
+  const tags = [];
+  tagSetTagSelectorEl?.querySelectorAll('input[type="checkbox"]:checked').forEach((input) => {
+    const value = normalizeTagValue(input.value);
+    if (value && !tags.includes(value)) {
+      tags.push(value);
+    }
+  });
+  return tags;
+};
+
+/**
+ * タグセット編集フォームを初期状態（新規追加）へ戻す。
+ */
+const resetTagSetForm = () => {
+  editingTagSetId = "";
+  if (tagSetNameInputEl) {
+    tagSetNameInputEl.value = "";
+  }
+  renderTagSetForm([]);
+};
+
+/**
+ * タグセット編集フォームのタグ候補チェックボックスを描画する。
+ * @param {string[]} [selectedTags=[]] - 初期選択タグ。
+ */
+function renderTagSetForm(selectedTags = []) {
+  if (saveTagSetBtn) {
+    saveTagSetBtn.textContent = editingTagSetId ? "セットを更新" : "セットを追加";
+  }
+  cancelTagSetEditBtn?.classList.toggle("hidden", !editingTagSetId);
+
+  if (!tagSetTagSelectorEl) {
+    return;
+  }
+
+  tagSetTagSelectorEl.innerHTML = "";
+  presetTagCandidates.forEach((tag) => {
+    const label = document.createElement("label");
+    label.className = "tag-item";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = tag;
+    input.checked = selectedTags.includes(tag);
+    input.addEventListener("change", () => {
+      if (input.checked && getTagSetFormTags().length > MAX_TAGS_PER_SET) {
+        input.checked = false;
+        setStatus(STATUS_TARGETS.tagSet, `1セットに登録できるタグは最大${MAX_TAGS_PER_SET}つです。`);
+      }
+    });
+
+    const text = document.createElement("span");
+    text.textContent = tag;
+
+    label.append(input, text);
+    tagSetTagSelectorEl.appendChild(label);
+  });
+
+  if (tagSetTagEmptyHintEl) {
+    tagSetTagEmptyHintEl.style.display = presetTagCandidates.length > 0 ? "none" : "block";
+  }
+}
+
+/**
+ * 指定タグセットを編集フォームへ読み込む。
+ * @param {{id: string, name: string, tags: string[]}} tagSet - 編集対象。
+ */
+const startTagSetEdit = (tagSet) => {
+  editingTagSetId = tagSet.id;
+  if (tagSetNameInputEl) {
+    tagSetNameInputEl.value = tagSet.name;
+  }
+  renderTagSetForm(tagSet.tags);
+  tagSetNameInputEl?.focus();
+};
+
+/** タグセットの追加/更新を実行する。 */
+const saveTagSet = async () => {
+  const name = String(tagSetNameInputEl?.value ?? "").trim();
+  const tags = getTagSetFormTags();
+
+  if (presetTagCandidates.length === 0) {
+    setStatus(STATUS_TARGETS.tagSet, "先に「タグ候補」でタグを登録してください。");
+    return;
+  }
+  if (!name) {
+    setStatus(STATUS_TARGETS.tagSet, "セット名を入力してください。");
+    return;
+  }
+  if (tags.length === 0) {
+    setStatus(STATUS_TARGETS.tagSet, "タグを1つ以上選択してください。");
+    return;
+  }
+  if (presetTagSets.some((set) => set.name === name && set.id !== editingTagSetId)) {
+    setStatus(STATUS_TARGETS.tagSet, "同じ名前のセットが既に登録されています。");
+    return;
+  }
+  if (!editingTagSetId && presetTagSets.length >= MAX_TAG_SETS) {
+    setStatus(STATUS_TARGETS.tagSet, `タグセットは最大${MAX_TAG_SETS}件までです。`);
+    return;
+  }
+
+  if (editingTagSetId) {
+    presetTagSets = presetTagSets.map((set) =>
+      set.id === editingTagSetId ? { ...set, name, tags } : set
+    );
+  } else {
+    presetTagSets = [...presetTagSets, { id: createTagSetId(), name, tags }];
+  }
+
+  const wasEditing = Boolean(editingTagSetId);
+  await persistConfigs();
+  resetTagSetForm();
+  render();
+  setStatus(
+    STATUS_TARGETS.tagSet,
+    wasEditing ? `セット「${name}」を更新しました。` : `セット「${name}」を追加しました。`
+  );
+};
+
+/**
+ * 削除されたタグ候補をタグセットから取り除く。
+ * タグが無くなったセットは削除する。
+ * @param {string} removedTag - 削除されたタグ。
+ * @returns {boolean} タグセットに変更があれば true。
+ */
+const removeTagFromTagSets = (removedTag) => {
+  const nextSets = presetTagSets
+    .map((set) => ({ ...set, tags: set.tags.filter((tag) => tag !== removedTag) }))
+    .filter((set) => set.tags.length > 0);
+  const changed =
+    nextSets.length !== presetTagSets.length ||
+    nextSets.some((set, index) => set.tags.length !== presetTagSets[index].tags.length);
+  presetTagSets = nextSets;
+  if (changed && !presetTagSets.some((set) => set.id === editingTagSetId)) {
+    editingTagSetId = "";
+  }
+  return changed;
 };
 
 /**
@@ -438,9 +628,15 @@ const render = () => {
       removeBtn.textContent = "削除";
       removeBtn.addEventListener("click", async () => {
         presetTagCandidates = presetTagCandidates.filter((value) => value !== tag);
+        const tagSetsChanged = removeTagFromTagSets(tag);
         await persistConfigs();
         render();
-        setStatus(STATUS_TARGETS.tag, `タグ「${tag}」を削除しました。`);
+        setStatus(
+          STATUS_TARGETS.tag,
+          tagSetsChanged
+            ? `タグ「${tag}」を削除しました（タグセットからも除外しました）。`
+            : `タグ「${tag}」を削除しました。`
+        );
       });
 
       item.append(text, removeBtn);
@@ -451,6 +647,63 @@ const render = () => {
   if (tagCandidateEmptyHintEl) {
     tagCandidateEmptyHintEl.style.display = presetTagCandidates.length > 0 ? "none" : "block";
   }
+
+  if (tagSetListEl) {
+    tagSetListEl.innerHTML = "";
+    presetTagSets.forEach((tagSet) => {
+      const card = document.createElement("article");
+      card.className = "tag-set-card";
+
+      const body = document.createElement("div");
+      body.className = "tag-set-card-body";
+
+      const name = document.createElement("div");
+      name.className = "tag-set-name";
+      name.textContent = tagSet.name;
+
+      const tags = document.createElement("div");
+      tags.className = "tag-set-tags";
+      tags.textContent = tagSet.tags.map((tag) => `#${tag}`).join(" ");
+
+      body.append(name, tags);
+
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "ghost";
+      editBtn.textContent = "編集";
+      editBtn.addEventListener("click", () => {
+        startTagSetEdit(tagSet);
+        setStatus(STATUS_TARGETS.tagSet, `セット「${tagSet.name}」を編集中です。`);
+      });
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "ghost";
+      removeBtn.textContent = "削除";
+      removeBtn.addEventListener("click", async () => {
+        presetTagSets = presetTagSets.filter((set) => set.id !== tagSet.id);
+        if (editingTagSetId === tagSet.id) {
+          resetTagSetForm();
+        }
+        await persistConfigs();
+        render();
+        setStatus(STATUS_TARGETS.tagSet, `セット「${tagSet.name}」を削除しました。`);
+      });
+
+      card.append(body, editBtn, removeBtn);
+      tagSetListEl.appendChild(card);
+    });
+  }
+
+  if (tagSetEmptyHintEl) {
+    tagSetEmptyHintEl.style.display = presetTagSets.length > 0 ? "none" : "block";
+  }
+
+  renderTagSetForm(
+    editingTagSetId
+      ? presetTagSets.find((set) => set.id === editingTagSetId)?.tags ?? []
+      : getTagSetFormTags()
+  );
 
   if (obsidianWordListEl) {
     obsidianWordListEl.innerHTML = "";
@@ -489,6 +742,7 @@ const persistConfigs = async () => {
   await chrome.storage.local.set({
     presetConfigs,
     presetTagCandidates,
+    presetTagSets,
     presetObsidianLinkWords,
     obsidianLinkify: obsidianLinkifyEnabled,
     imageImportMode,
@@ -501,6 +755,10 @@ const loadConfigs = async () => {
   const stored = await chrome.storage.local.get(STORAGE_KEYS);
   presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
   presetTagCandidates = sanitizeTagCandidates(stored.presetTagCandidates ?? []);
+  presetTagSets = sanitizeTagSets(stored.presetTagSets ?? []).map((set) => ({
+    ...set,
+    tags: set.tags.filter((tag) => presetTagCandidates.includes(tag)),
+  })).filter((set) => set.tags.length > 0);
   presetObsidianLinkWords = sanitizeObsidianLinkWords(stored.presetObsidianLinkWords ?? []);
   obsidianLinkifyEnabled = Boolean(stored.obsidianLinkify);
   imageImportMode = normalizeImageImportMode(stored.imageImportMode);
@@ -584,6 +842,22 @@ const bindEvents = () => {
       event.preventDefault();
       addTagBtn?.click();
     }
+  });
+
+  saveTagSetBtn?.addEventListener("click", async () => {
+    await saveTagSet();
+  });
+
+  tagSetNameInputEl?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveTagSetBtn?.click();
+    }
+  });
+
+  cancelTagSetEditBtn?.addEventListener("click", () => {
+    resetTagSetForm();
+    setStatus(STATUS_TARGETS.tagSet, "編集を中止しました。");
   });
 
   addObsidianWordBtn?.addEventListener("click", async () => {
@@ -690,6 +964,7 @@ const bindEvents = () => {
 
 void loadConfigs().then(() => {
   clearStatus(STATUS_TARGETS.tag);
+  clearStatus(STATUS_TARGETS.tagSet);
   clearStatus(STATUS_TARGETS.obsidian);
   clearStatus(STATUS_TARGETS.image);
   bindEvents();

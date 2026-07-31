@@ -121,6 +121,31 @@
       </div>
     </section>
 
+    <section class="settings-section" aria-labelledby="tagSetSectionTitle">
+      <h2 id="tagSetSectionTitle" class="settings-section-title">タグセットプリセット</h2>
+      <p class="hint inline">
+        よく使うタグの組み合わせを登録しておくと、popup で一括選択できます（1セット最大 5 タグ / 最大 10 セット）。
+      </p>
+      <div class="settings-card">
+        <label>
+          セット名
+          <input id="tagSetNameInput" type="text" maxlength="40" placeholder="例: 技術ノート" spellcheck="false" />
+        </label>
+        <p class="hint inline">タグ候補から選択（最大 5 つ）</p>
+        <div id="tagSetTagSelector" class="tag-candidate-list"></div>
+        <p id="tagSetTagEmptyHint" class="hint inline empty-hint">
+          先に「タグ候補」でタグを登録してください。
+        </p>
+        <div class="bulk-add-row tag-set-form-actions">
+          <button id="saveTagSetBtn" type="button">セットを追加</button>
+          <button id="cancelTagSetEditBtn" type="button" class="ghost hidden">編集をやめる</button>
+        </div>
+        <div id="tagSetList" class="tag-set-list"></div>
+        <p id="tagSetEmptyHint" class="hint inline empty-hint">タグセットはまだありません。</p>
+        <div id="tagSetStatus" class="status" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
     <section class="settings-section" aria-labelledby="obsidianSectionTitle">
       <h2 id="obsidianSectionTitle" class="settings-section-title">Obsidianで活用する</h2>
       <div class="settings-card">
