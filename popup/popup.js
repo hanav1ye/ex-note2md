@@ -21,6 +21,8 @@ const pickMultiBtn = $("pickMultiBtn");
 const downloadLocationFieldEl = $("downloadLocationField");
 const downloadPresetEl = $("downloadPreset");
 const downloadPresetHintEl = $("downloadPresetHint");
+const tagSetFieldEl = $("tagSetField");
+const tagSetSelectEl = $("tagSetSelect");
 const tagSelectorEl = $("tagSelector");
 const tagSelectorHintEl = $("tagSelectorHint");
 const splashEl = $("splash");
@@ -42,6 +44,8 @@ const STORAGE_KEY_NAMES = [
   "imageFolderConfig",
   "presetConfigs",
   "presetTagCandidates",
+  "presetTagSets",
+  "selectedTagSetId",
 ];
 const DEFAULT_PRESET_CONFIGS = {
   preset1: { name: "プリセット1", folderLabel: "", hasFolder: false },
@@ -51,6 +55,7 @@ const DEFAULT_PRESET_CONFIGS = {
 
 let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
 let presetTagCandidates = [];
+let presetTagSets = [];
 let splashTimer = null;
 
 /**
@@ -311,6 +316,71 @@ const sanitizeTagCandidates = (candidates) => {
 };
 
 /**
+ * タグセット配列を正規化する（存在しないタグ候補は除外）。
+ * @param {unknown[]} sets - 保存済みタグセット。
+ * @returns {{id: string, name: string, tags: string[]}[]} 正規化済みタグセット一覧。
+ */
+const sanitizeTagSets = (sets) => {
+  const normalized = [];
+  (Array.isArray(sets) ? sets : []).forEach((set) => {
+    const id = String(set?.id ?? "").trim();
+    const name = String(set?.name ?? "").trim();
+    const tags = sanitizeTagCandidates(set?.tags)
+      .filter((tag) => presetTagCandidates.includes(tag))
+      .slice(0, MAX_TAGS);
+    if (!id || !name || tags.length === 0) {
+      return;
+    }
+    normalized.push({ id, name, tags });
+  });
+  return normalized;
+};
+
+/**
+ * タグセット選択欄を再描画する。
+ * @param {string} [selectedTagSetId=""] - 選択済みタグセットID。
+ */
+const renderTagSetSelect = (selectedTagSetId = "") => {
+  if (!tagSetSelectEl || !tagSetFieldEl) {
+    return;
+  }
+
+  tagSetFieldEl.classList.toggle("hidden", presetTagSets.length === 0);
+  tagSetSelectEl.innerHTML = "";
+
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "選択なし";
+  tagSetSelectEl.appendChild(emptyOption);
+
+  presetTagSets.forEach((tagSet) => {
+    const option = document.createElement("option");
+    option.value = tagSet.id;
+    option.textContent = `${tagSet.name}（${tagSet.tags.map((tag) => `#${tag}`).join(" ")}）`;
+    tagSetSelectEl.appendChild(option);
+  });
+
+  tagSetSelectEl.value = presetTagSets.some((set) => set.id === selectedTagSetId)
+    ? selectedTagSetId
+    : "";
+};
+
+/**
+ * 選択中タグセットのタグをタグ候補チェックボックスへ反映する。
+ * @param {string} tagSetId - 適用するタグセットID。
+ */
+const applyTagSet = (tagSetId) => {
+  const tagSet = presetTagSets.find((set) => set.id === tagSetId);
+  if (!tagSet) {
+    return;
+  }
+  tagSelectorEl.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.checked = tagSet.tags.includes(normalizeTag(input.value));
+  });
+  setStatus(`タグセット「${tagSet.name}」を適用しました。`, "ok");
+};
+
+/**
  * タグ候補チェックボックス群を再描画する。
  * @param {string[]} [selectedTags=[]] - 初期選択タグ。
  */
@@ -341,6 +411,7 @@ const renderTagSelector = (selectedTags = []) => {
         setStatus(`タグは最大${MAX_TAGS}つまで選択できます。`, "error");
         return;
       }
+      syncTagSetSelection();
       void savePreferences();
     });
 
@@ -365,6 +436,23 @@ const getUserTags = () => {
     }
   });
   return tags;
+};
+
+/**
+ * 選択中タグと一致するタグセットを選択欄へ反映する（一致しなければ「選択なし」）。
+ */
+const syncTagSetSelection = () => {
+  if (!tagSetSelectEl) {
+    return;
+  }
+  const currentTags = getUserTags();
+  const matchesCurrentTags = (set) =>
+    set.tags.length === currentTags.length && set.tags.every((tag) => currentTags.includes(tag));
+  const current = presetTagSets.find((set) => set.id === tagSetSelectEl.value);
+  if (current && matchesCurrentTags(current)) {
+    return;
+  }
+  tagSetSelectEl.value = presetTagSets.find(matchesCurrentTags)?.id ?? "";
 };
 
 /**
@@ -507,6 +595,7 @@ const savePreferences = async () => {
       outputMode: getSelectedOutputMode(),
       articleUrl: articleUrlEl.value.trim(),
       tags: getUserTags(),
+      selectedTagSetId: tagSetSelectEl?.value ?? "",
       downloadPreset: DOWNLOAD_PRESET_IDS.includes(downloadPresetEl.value)
         ? downloadPresetEl.value
         : "preset1",
@@ -540,9 +629,6 @@ const loadPreferences = async () => {
     if (typeof stored.articleUrl === "string") {
       articleUrlEl.value = stored.articleUrl;
     }
-    if (Array.isArray(stored.tags)) {
-      renderTagSelector(stored.tags);
-    }
     if (
       typeof stored.downloadPreset === "string" &&
       DOWNLOAD_PRESET_IDS.includes(stored.downloadPreset)
@@ -551,15 +637,16 @@ const loadPreferences = async () => {
     }
     presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
     presetTagCandidates = sanitizeTagCandidates(stored.presetTagCandidates ?? []);
-    if (!Array.isArray(stored.tags)) {
-      renderTagSelector([]);
-    } else {
-      renderTagSelector(stored.tags);
-    }
+    presetTagSets = sanitizeTagSets(stored.presetTagSets ?? []);
+    renderTagSelector(Array.isArray(stored.tags) ? stored.tags : []);
+    renderTagSetSelect(typeof stored.selectedTagSetId === "string" ? stored.selectedTagSetId : "");
+    syncTagSetSelection();
   } catch {
     presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
     presetTagCandidates = [];
+    presetTagSets = [];
     renderTagSelector([]);
+    renderTagSetSelect("");
   }
   updateUrlFieldVisibility();
   updateTabFieldVisibility();
@@ -832,6 +919,18 @@ outputModeInputs.forEach((input) => {
 });
 
 articleUrlEl.addEventListener("change", () => {
+  void savePreferences();
+});
+
+tagSetSelectEl?.addEventListener("change", () => {
+  if (tagSetSelectEl.value) {
+    applyTagSet(tagSetSelectEl.value);
+  } else {
+    tagSelectorEl.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+      input.checked = false;
+    });
+    setStatus("");
+  }
   void savePreferences();
 });
 
