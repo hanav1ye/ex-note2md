@@ -43,6 +43,7 @@ const imageFolderFieldEl = $("imageFolderField");
 const imageFolderLabelEl = $("imageFolderLabel");
 const imageFolderPickBtn = $("imageFolderPick");
 const imageFolderClearBtn = $("imageFolderClear");
+const imageFolderGrantBtn = $("imageFolderGrant");
 const imageImportStatusEl = $("imageImportStatus");
 const bulkAddModalEl = $("bulkAddModal");
 const bulkAddFormEl = $("bulkAddForm");
@@ -79,6 +80,8 @@ let obsidianLinkifyEnabled = false;
 let imageImportMode = "url";
 let imageFolderConfig = { ...DEFAULT_IMAGE_FOLDER_CONFIG };
 let currentBulkTarget = BULK_TARGETS.tag;
+/** @type {Record<string, "granted"|"prompt"|"missing">} 保存済みフォルダの権限状態 */
+let permissionStates = {};
 
 /**
  * ステータス出力先（タグ/Obsidian）に対応する要素を返す。
@@ -201,13 +204,49 @@ const updateImageFolderVisibility = () => {
   imageFolderFieldEl?.classList.toggle("hidden", getSelectedImageImportMode() !== "download");
 };
 
+/**
+ * 保存済みフォルダの表示文言を権限状態に応じて組み立てる。
+ * @param {{hasFolder: boolean, folderLabel: string}} config - フォルダ設定。
+ * @param {string} handleKey - ハンドルのキー。
+ * @param {string} unsetLabel - 未設定時の文言。
+ * @returns {{text: string, needsPermission: boolean}} 表示内容。
+ */
+const buildFolderLabel = (config, handleKey, unsetLabel) => {
+  if (!config.hasFolder) {
+    return { text: unsetLabel, needsPermission: false };
+  }
+  const name = config.folderLabel || "フォルダ名不明";
+  const state = permissionStates[handleKey];
+  if (state === "prompt") {
+    return { text: `設定済み: ${name}（アクセス許可の再取得が必要）`, needsPermission: true };
+  }
+  if (state === "missing") {
+    return { text: `${name}（フォルダ情報が見つかりません。選択し直してください）`, needsPermission: true };
+  }
+  return { text: `設定済み: ${name}`, needsPermission: false };
+};
+
+/**
+ * フォルダ表示と「アクセスを再許可」ボタンの状態を反映する。
+ * @param {HTMLElement|null} labelEl - 表示先ラベル。
+ * @param {HTMLElement|null} grantBtn - 再許可ボタン。
+ * @param {{text: string, needsPermission: boolean}} label - 表示内容。
+ */
+const applyFolderLabel = (labelEl, grantBtn, label) => {
+  if (labelEl) {
+    labelEl.textContent = label.text;
+    labelEl.classList.toggle("needs-permission", label.needsPermission);
+  }
+  grantBtn?.classList.toggle("hidden", !label.needsPermission);
+};
+
 /** 画像保存先フォルダ表示を更新する。 */
 const renderImageFolderField = () => {
-  if (imageFolderLabelEl) {
-    imageFolderLabelEl.textContent = imageFolderConfig.hasFolder
-      ? `設定済み: ${imageFolderConfig.folderLabel || "フォルダ名不明"}`
-      : "未設定（フォルダ未選択）";
-  }
+  applyFolderLabel(
+    imageFolderLabelEl,
+    imageFolderGrantBtn,
+    buildFolderLabel(imageFolderConfig, IMAGE_FOLDER_HANDLE_KEY, "未設定（フォルダ未選択）")
+  );
   updateImageFolderVisibility();
 };
 
@@ -575,6 +614,86 @@ const saveHandle = async (presetId, handle) => {
 };
 
 /**
+ * 指定プリセットIDのディレクトリハンドルを取得する。
+ * @param {string} presetId - 対象プリセットID。
+ * @returns {Promise<FileSystemDirectoryHandle|null>} ハンドル。未保存なら null。
+ */
+const getHandle = async (presetId) => {
+  const db = await openPresetDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, "readonly");
+    const request = tx.objectStore(DB_STORE).get(presetId);
+    request.onsuccess = () => resolve(request.result ?? null);
+    request.onerror = () => reject(request.error);
+  }).finally(() => db.close());
+};
+
+/**
+ * 保存済みハンドルの書き込み権限状態を返す。
+ * @param {string} handleKey - ハンドルのキー。
+ * @returns {Promise<"granted"|"prompt"|"missing">} 権限状態。
+ */
+const readPermissionState = async (handleKey) => {
+  try {
+    const handle = await getHandle(handleKey);
+    if (!handle) {
+      return "missing";
+    }
+    const permission = await handle.queryPermission({ mode: "readwrite" });
+    return permission === "granted" ? "granted" : "prompt";
+  } catch {
+    return "missing";
+  }
+};
+
+/**
+ * フォルダ設定済みの各ハンドルについて権限状態を取り直す。
+ */
+const refreshPermissionStates = async () => {
+  const targets = [
+    ...PRESET_IDS.filter((id) => presetConfigs[id]?.hasFolder),
+    ...(imageFolderConfig.hasFolder ? [IMAGE_FOLDER_HANDLE_KEY] : []),
+  ];
+  const states = {};
+  await Promise.all(
+    targets.map(async (key) => {
+      states[key] = await readPermissionState(key);
+    })
+  );
+  permissionStates = states;
+};
+
+/**
+ * 保存済みフォルダへのアクセス権限を再要求する（ボタン操作から呼ぶこと）。
+ * @param {string} handleKey - ハンドルのキー。
+ * @param {"tag"|"image"} statusTarget - メッセージ表示先。
+ */
+const requestFolderPermission = async (handleKey, statusTarget) => {
+  try {
+    const handle = await getHandle(handleKey);
+    if (!handle) {
+      permissionStates[handleKey] = "missing";
+      render();
+      setStatus(statusTarget, "フォルダ情報が見つかりません。フォルダを選択し直してください。");
+      return;
+    }
+    const permission = await handle.requestPermission({ mode: "readwrite" });
+    permissionStates[handleKey] = permission === "granted" ? "granted" : "prompt";
+    render();
+    setStatus(
+      statusTarget,
+      permission === "granted"
+        ? "フォルダへのアクセスを再許可しました。"
+        : "アクセスが許可されませんでした。もう一度お試しください。"
+    );
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      setStatus(statusTarget, "アクセスの再許可に失敗しました。フォルダを選択し直してください。");
+    }
+  }
+};
+
+/**
  * 指定プリセットIDのハンドルを削除する。
  * @param {string} presetId - 削除対象プリセットID。
  */
@@ -601,11 +720,11 @@ const render = () => {
     if (nameInput && nameInput.value !== config.name) {
       nameInput.value = config.name;
     }
-    if (folderLabel) {
-      folderLabel.textContent = config.hasFolder
-        ? `設定済み: ${config.folderLabel || "フォルダ名不明"}`
-        : "未設定（ダウンロード不可 — フォルダを選択してください）";
-    }
+    applyFolderLabel(
+      folderLabel,
+      $(`${id}Grant`),
+      buildFolderLabel(config, id, "未設定（ダウンロード不可 — フォルダを選択してください）")
+    );
   });
 
   if (tagCandidateListEl) {
@@ -761,6 +880,9 @@ const loadConfigs = async () => {
     obsidianLinkifyEl.checked = obsidianLinkifyEnabled;
   }
   render();
+  // 権限状態の取得は非同期なので、取得でき次第もう一度描画する。
+  await refreshPermissionStates();
+  render();
 };
 
 /** 各UI操作のイベントハンドラをバインドする。 */
@@ -777,6 +899,10 @@ const bindEvents = () => {
       setStatus(STATUS_TARGETS.tag, "プリセット名を保存しました。");
     });
 
+    $(`${id}Grant`)?.addEventListener("click", async () => {
+      await requestFolderPermission(id, STATUS_TARGETS.tag);
+    });
+
     pickBtn?.addEventListener("click", async () => {
       try {
         const handle = await window.showDirectoryPicker();
@@ -788,6 +914,7 @@ const bindEvents = () => {
         await saveHandle(id, handle);
         presetConfigs[id].folderLabel = handle.name || "";
         presetConfigs[id].hasFolder = true;
+        permissionStates[id] = "granted";
         await persistConfigs();
         render();
         setStatus(STATUS_TARGETS.tag, "保存先フォルダを設定しました。");
@@ -803,6 +930,7 @@ const bindEvents = () => {
         await deleteHandle(id);
         presetConfigs[id].folderLabel = "";
         presetConfigs[id].hasFolder = false;
+        delete permissionStates[id];
         await persistConfigs();
         render();
         setStatus(STATUS_TARGETS.tag, "保存先フォルダを解除しました。");
@@ -916,6 +1044,7 @@ const bindEvents = () => {
         folderLabel: handle.name || "",
         hasFolder: true,
       };
+      permissionStates[IMAGE_FOLDER_HANDLE_KEY] = "granted";
       await persistConfigs();
       renderImageFolderField();
       setStatus(STATUS_TARGETS.image, "画像保存先フォルダを設定しました。");
@@ -926,10 +1055,15 @@ const bindEvents = () => {
     }
   });
 
+  imageFolderGrantBtn?.addEventListener("click", async () => {
+    await requestFolderPermission(IMAGE_FOLDER_HANDLE_KEY, STATUS_TARGETS.image);
+  });
+
   imageFolderClearBtn?.addEventListener("click", async () => {
     try {
       await deleteHandle(IMAGE_FOLDER_HANDLE_KEY);
       imageFolderConfig = { ...DEFAULT_IMAGE_FOLDER_CONFIG };
+      delete permissionStates[IMAGE_FOLDER_HANDLE_KEY];
       await persistConfigs();
       renderImageFolderField();
       setStatus(STATUS_TARGETS.image, "画像保存先フォルダを解除しました。");

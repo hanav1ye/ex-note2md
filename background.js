@@ -29,16 +29,21 @@ const presetDisplayName = (presetId, config) =>
   config?.name?.trim() || `プリセット${PRESET_IDS.indexOf(presetId) + 1}`;
 
 /**
- * note記事URLからファイル名のベースになる noteId を抽出する。
- * 抽出失敗時は安全な既定名を返す。
- * @param {string} url - note記事URL。
- * @returns {string} 拡張子なしファイル名。
+ * ファイル名／フォルダ名として安全な文字列へ正規化する。
+ * @param {string} value - 元文字列。
+ * @returns {string} 正規化後の名前。空になる場合は "note-article"。
  */
 const sanitizeFileBaseName = (value) =>
   String(value ?? "")
     .replace(/[^\p{Letter}\p{Number}_-]+/gu, "-")
     .replace(/^-+|-+$/g, "") || "note-article";
 
+/**
+ * note記事URLからファイル名のベースになる noteId を抽出する。
+ * 抽出失敗時は安全な既定名を返す。
+ * @param {string} url - note記事URL。
+ * @returns {string} 拡張子なしファイル名。
+ */
 const filenameFromNoteUrl = (url) => {
   try {
     const parsed = new URL(url);
@@ -165,7 +170,7 @@ const getImageFolderHandle = async () => {
 
   const permission = await handle.queryPermission({ mode: "readwrite" });
   if (permission !== "granted") {
-    throw new Error("画像保存先フォルダへのアクセス権限がありません。オプション画面からフォルダを再選択してください。");
+    throw new Error("画像保存先フォルダへのアクセス権限が失効しています。オプション画面の「アクセスを再許可」ボタンから許可し直してください。");
   }
 
   return handle;
@@ -199,7 +204,7 @@ const getPresetDirectoryHandle = async (downloadPreset) => {
   const permission = await handle.queryPermission({ mode: "readwrite" });
   if (permission !== "granted") {
     throw new Error(
-      `「${presetDisplayName(selectedPreset, selectedConfig)}」の保存先フォルダへのアクセス権限がありません。設定画面からフォルダを再選択してください。`
+      `「${presetDisplayName(selectedPreset, selectedConfig)}」の保存先フォルダへのアクセス権限が失効しています。設定画面の「アクセスを再許可」ボタンから許可し直してください。`
     );
   }
 

@@ -12,10 +12,113 @@ let multiPickModeActive = false;
 let multiPickedArticles = [];
 let multiPanelEl = null;
 let multiRunning = false;
+let multiCancelRequested = false;
 let multiProgressCurrent = 0;
 let multiProgressTotal = 0;
 let pageToastTimer = null;
-const PAGE_TOAST_ID = "ntm-page-toast";
+let uiHostEl = null;
+let uiShadowRoot = null;
+
+const UI_HOST_ID = "ntm-ui-root";
+
+// note.com 側の CSS の影響を受けないよう、UI は Shadow DOM 内に閉じる。
+const UI_STYLES = `
+  :host { all: initial; }
+  * { box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    top: 16px;
+    transform: translateX(-50%) translateY(0);
+    max-width: min(420px, 85vw);
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #9dd8c2;
+    background: linear-gradient(135deg, #ecfaf4, #f8fffc);
+    color: #1f5a47;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 8px 20px rgba(60, 84, 92, 0.2);
+    opacity: 1;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: auto;
+  }
+  .toast.skip { border-color: #e8d080; background: linear-gradient(135deg, #fffbea, #fffdf5); color: #7a5c14; }
+  .toast.error { border-color: #e3a7b1; background: linear-gradient(135deg, #fff0f3, #fff9fa); color: #8e3c4d; }
+  .toast.is-hidden { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+
+  .panel {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #fff5f8, #ffffff);
+    border: 1px solid #efc7d7;
+    box-shadow: 0 8px 22px rgba(103, 73, 85, 0.2);
+    pointer-events: auto;
+  }
+  .panel-count { font-size: 12px; font-weight: 700; color: #744257; }
+  .panel-progress { font-size: 11px; font-weight: 600; color: #8c4f68; }
+  .panel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 140px;
+    overflow: auto;
+    min-width: 220px;
+    font-size: 11px;
+    color: #744257;
+  }
+  .panel button {
+    border: 1px solid #e2cad4;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #fff;
+    color: #744257;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .panel button.primary { border: none; font-weight: 700; color: #fff; background: linear-gradient(135deg, #7eb8d4, #d996ae); }
+  .panel button.danger { border-color: #e3a7b1; color: #8e3c4d; }
+  .panel button:disabled { opacity: 0.5; cursor: default; }
+  .panel-hint { font-size: 10px; color: #a08292; }
+`;
+
+/**
+ * ページ内UI用の Shadow Root を取得する（未生成なら作成する）。
+ * @returns {ShadowRoot} UIのルート。
+ */
+const getUiRoot = () => {
+  if (!uiHostEl?.isConnected) {
+    uiHostEl = document.createElement("div");
+    uiHostEl.id = UI_HOST_ID;
+    // ページの操作を妨げないよう、ホスト自体はクリックを透過させる。
+    uiHostEl.style.cssText =
+      "position:fixed;inset:0;z-index:2147483647;pointer-events:none;border:0;margin:0;padding:0;";
+    uiShadowRoot = uiHostEl.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = UI_STYLES;
+    uiShadowRoot.appendChild(style);
+    document.documentElement.appendChild(uiHostEl);
+  }
+  return uiShadowRoot;
+};
+
+/**
+ * イベントが拡張のページ内UI由来か判定する。
+ * Shadow DOM 内のクリックは event.target がホスト要素へ再ターゲットされる。
+ * @param {EventTarget|null} target - イベントターゲット。
+ * @returns {boolean} UI由来なら true。
+ */
+const isExtensionUiTarget = (target) =>
+  Boolean(uiHostEl && target instanceof Node && (target === uiHostEl || uiHostEl.contains(target)));
 
 /**
  * URLがnote記事形式か判定する。
@@ -39,47 +142,21 @@ const clearHover = () => {
  * @param {"ok"|"skip"|"error"} [kind="ok"] - 表示種別。
  */
 const showPageToast = (message, kind = "ok") => {
-  let toast = document.getElementById(PAGE_TOAST_ID);
+  const root = getUiRoot();
+  let toast = root.querySelector(".toast");
   if (!toast) {
     toast = document.createElement("div");
-    toast.id = PAGE_TOAST_ID;
-    document.documentElement.appendChild(toast);
+    toast.className = "toast";
+    root.appendChild(toast);
   }
   toast.textContent = message;
-  toast.style.position = "fixed";
-  toast.style.left = "50%";
-  toast.style.top = "16px";
-  toast.style.zIndex = "2147483647";
-  toast.style.maxWidth = "min(420px, 85vw)";
-  toast.style.padding = "10px 12px";
-  toast.style.borderRadius = "10px";
-  if (kind === "skip") {
-    toast.style.border = "1px solid #e8d080";
-    toast.style.background = "linear-gradient(135deg, #fffbea, #fffdf5)";
-    toast.style.color = "#7a5c14";
-  } else if (kind === "error") {
-    toast.style.border = "1px solid #e3a7b1";
-    toast.style.background = "linear-gradient(135deg, #fff0f3, #fff9fa)";
-    toast.style.color = "#8e3c4d";
-  } else {
-    toast.style.border = "1px solid #9dd8c2";
-    toast.style.background = "linear-gradient(135deg, #ecfaf4, #f8fffc)";
-    toast.style.color = "#1f5a47";
-  }
-  toast.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', sans-serif";
-  toast.style.fontSize = "13px";
-  toast.style.fontWeight = "600";
-  toast.style.boxShadow = "0 8px 20px rgba(60, 84, 92, 0.2)";
-  toast.style.opacity = "1";
-  toast.style.transform = "translateX(-50%) translateY(0)";
-  toast.style.transition = "opacity 0.2s ease, transform 0.2s ease";
+  toast.className = `toast${kind === "ok" ? "" : ` ${kind}`}`;
 
   if (pageToastTimer) {
     clearTimeout(pageToastTimer);
   }
   pageToastTimer = setTimeout(() => {
-    toast.style.opacity = "0";
-    toast.style.transform = "translateX(-50%) translateY(-8px)";
+    toast.classList.add("is-hidden");
     setTimeout(() => toast.remove(), 220);
   }, 2600);
 };
@@ -222,93 +299,50 @@ const renderMultiPanel = () => {
   }
 
   if (!multiPanelEl) {
+    const root = getUiRoot();
     multiPanelEl = document.createElement("div");
-    multiPanelEl.id = "ntm-multi-pick-panel";
-    multiPanelEl.style.position = "fixed";
-    multiPanelEl.style.right = "16px";
-    multiPanelEl.style.bottom = "16px";
-    multiPanelEl.style.zIndex = "2147483647";
-    multiPanelEl.style.display = "flex";
-    multiPanelEl.style.gap = "8px";
-    multiPanelEl.style.alignItems = "center";
-    multiPanelEl.style.padding = "10px 12px";
-    multiPanelEl.style.borderRadius = "10px";
-    multiPanelEl.style.background = "linear-gradient(135deg, #fff5f8, #ffffff)";
-    multiPanelEl.style.border = "1px solid #efc7d7";
-    multiPanelEl.style.boxShadow = "0 8px 22px rgba(103, 73, 85, 0.2)";
-    multiPanelEl.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+    multiPanelEl.className = "panel";
 
     const count = document.createElement("span");
-    count.id = "ntm-multi-count";
-    count.style.fontSize = "12px";
-    count.style.fontWeight = "700";
-    count.style.color = "#744257";
+    count.className = "panel-count";
     multiPanelEl.appendChild(count);
 
     const progress = document.createElement("span");
-    progress.id = "ntm-multi-progress";
-    progress.style.fontSize = "11px";
-    progress.style.fontWeight = "600";
-    progress.style.color = "#8c4f68";
+    progress.className = "panel-progress";
     multiPanelEl.appendChild(progress);
 
     const list = document.createElement("div");
-    list.id = "ntm-multi-list";
-    list.style.display = "flex";
-    list.style.flexDirection = "column";
-    list.style.gap = "3px";
-    list.style.maxHeight = "140px";
-    list.style.overflow = "auto";
-    list.style.minWidth = "220px";
-    list.style.fontSize = "11px";
-    list.style.color = "#744257";
+    list.className = "panel-list";
     multiPanelEl.appendChild(list);
 
     const runBtn = document.createElement("button");
     runBtn.type = "button";
-    runBtn.textContent = "実行";
-    runBtn.style.border = "none";
-    runBtn.style.padding = "6px 10px";
-    runBtn.style.borderRadius = "8px";
-    runBtn.style.fontSize = "12px";
-    runBtn.style.fontWeight = "700";
-    runBtn.style.color = "#ffffff";
-    runBtn.style.background = "linear-gradient(135deg, #7eb8d4, #d996ae)";
-    runBtn.style.cursor = "pointer";
+    runBtn.className = "primary";
+    runBtn.dataset.role = "run";
     runBtn.addEventListener("click", () => {
+      // 実行中は同じボタンが「中止」として働く
+      if (multiRunning) {
+        multiCancelRequested = true;
+        renderMultiPanel();
+        return;
+      }
       void executeMultiPickNow();
     });
-    runBtn.id = "ntm-multi-run";
     multiPanelEl.appendChild(runBtn);
 
     const selectVisibleBtn = document.createElement("button");
     selectVisibleBtn.type = "button";
+    selectVisibleBtn.dataset.role = "select-visible";
     selectVisibleBtn.textContent = "一覧を全選択";
-    selectVisibleBtn.style.border = "1px solid #e2cad4";
-    selectVisibleBtn.style.padding = "6px 10px";
-    selectVisibleBtn.style.borderRadius = "8px";
-    selectVisibleBtn.style.fontSize = "12px";
-    selectVisibleBtn.style.fontWeight = "600";
-    selectVisibleBtn.style.background = "#fff";
-    selectVisibleBtn.style.color = "#744257";
-    selectVisibleBtn.style.cursor = "pointer";
     selectVisibleBtn.addEventListener("click", () => {
       addVisibleArticlesToSelection();
     });
-    selectVisibleBtn.id = "ntm-multi-select-visible";
     multiPanelEl.appendChild(selectVisibleBtn);
 
     const clearBtn = document.createElement("button");
     clearBtn.type = "button";
+    clearBtn.dataset.role = "clear";
     clearBtn.textContent = "解除";
-    clearBtn.style.border = "1px solid #e2cad4";
-    clearBtn.style.padding = "6px 10px";
-    clearBtn.style.borderRadius = "8px";
-    clearBtn.style.fontSize = "12px";
-    clearBtn.style.fontWeight = "600";
-    clearBtn.style.background = "#fff";
-    clearBtn.style.color = "#744257";
-    clearBtn.style.cursor = "pointer";
     clearBtn.addEventListener("click", () => {
       multiPickedArticles = [];
       renderMultiPanel();
@@ -318,30 +352,28 @@ const renderMultiPanel = () => {
 
     const exitBtn = document.createElement("button");
     exitBtn.type = "button";
+    exitBtn.dataset.role = "exit";
     exitBtn.textContent = "終了";
-    exitBtn.style.border = "1px solid #e2cad4";
-    exitBtn.style.padding = "6px 10px";
-    exitBtn.style.borderRadius = "8px";
-    exitBtn.style.fontSize = "12px";
-    exitBtn.style.fontWeight = "600";
-    exitBtn.style.background = "#fff";
-    exitBtn.style.color = "#744257";
-    exitBtn.style.cursor = "pointer";
     exitBtn.addEventListener("click", () => {
       endMultiPickMode();
       showPageToast("複数選択モードを終了しました。", "ok");
     });
     multiPanelEl.appendChild(exitBtn);
 
-    document.documentElement.appendChild(multiPanelEl);
+    const hint = document.createElement("span");
+    hint.className = "panel-hint";
+    hint.textContent = "Esc で終了";
+    multiPanelEl.appendChild(hint);
+
+    root.appendChild(multiPanelEl);
   }
 
-  const countEl = multiPanelEl.querySelector("#ntm-multi-count");
+  const countEl = multiPanelEl.querySelector(".panel-count");
   if (countEl) {
     countEl.textContent = `選択中: ${multiPickedArticles.length}件`;
   }
 
-  const progressEl = multiPanelEl.querySelector("#ntm-multi-progress");
+  const progressEl = multiPanelEl.querySelector(".panel-progress");
   if (progressEl) {
     progressEl.textContent =
       multiRunning && multiProgressTotal > 0
@@ -349,18 +381,28 @@ const renderMultiPanel = () => {
         : "";
   }
 
-  const runBtn = multiPanelEl.querySelector("#ntm-multi-run");
+  const runBtn = multiPanelEl.querySelector('[data-role="run"]');
   if (runBtn) {
-    runBtn.disabled = multiRunning || multiPickedArticles.length === 0;
-    runBtn.textContent = multiRunning ? "実行中..." : "実行";
+    runBtn.disabled = multiRunning ? multiCancelRequested : multiPickedArticles.length === 0;
+    runBtn.classList.toggle("primary", !multiRunning);
+    runBtn.classList.toggle("danger", multiRunning);
+    if (multiRunning) {
+      runBtn.textContent = multiCancelRequested ? "中止中..." : "中止";
+    } else {
+      runBtn.textContent = "実行";
+    }
   }
 
-  const selectVisibleBtn = multiPanelEl.querySelector("#ntm-multi-select-visible");
+  const selectVisibleBtn = multiPanelEl.querySelector('[data-role="select-visible"]');
   if (selectVisibleBtn) {
     selectVisibleBtn.disabled = multiRunning;
   }
 
-  const listEl = multiPanelEl.querySelector("#ntm-multi-list");
+  multiPanelEl.querySelectorAll('[data-role="clear"], [data-role="exit"]').forEach((button) => {
+    button.disabled = multiRunning;
+  });
+
+  const listEl = multiPanelEl.querySelector(".panel-list");
   if (listEl) {
     listEl.innerHTML = "";
     multiPickedArticles.forEach((article, index) => {
@@ -380,6 +422,7 @@ const endPickMode = () => {
   clearHover();
   document.removeEventListener("mousemove", handlePickMouseMove, true);
   document.removeEventListener("click", handlePickClick, true);
+  document.removeEventListener("keydown", handlePickKeydown, true);
   document.body.style.cursor = previousCursor;
 };
 
@@ -392,8 +435,40 @@ const endMultiPickMode = () => {
   clearHover();
   document.removeEventListener("mousemove", handlePickMouseMove, true);
   document.removeEventListener("click", handleMultiPickClick, true);
+  document.removeEventListener("keydown", handlePickKeydown, true);
   document.body.style.cursor = previousCursor;
   removeMultiPanel();
+};
+
+/**
+ * 選択モード中の Esc キーを処理する。
+ * 一括実行中は中止要求、それ以外は選択モードの終了に割り当てる。
+ * @param {KeyboardEvent} event - キーイベント。
+ */
+const handlePickKeydown = (event) => {
+  if (event.key !== "Escape" || (!pickModeActive && !multiPickModeActive)) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (multiRunning) {
+    if (!multiCancelRequested) {
+      multiCancelRequested = true;
+      renderMultiPanel();
+      showPageToast("中止します。現在の記事の処理完了後に停止します。", "skip");
+    }
+    return;
+  }
+
+  if (pickModeActive) {
+    endPickMode();
+    showPageToast("選択モードを終了しました。", "ok");
+    return;
+  }
+
+  endMultiPickMode();
+  showPageToast("複数選択モードを終了しました。", "ok");
 };
 
 /**
@@ -451,9 +526,9 @@ const handleMultiPickClick = (event) => {
   if (!multiPickModeActive) {
     return;
   }
-  const rawTarget = event.target;
-  if (rawTarget instanceof Element && rawTarget.closest("#ntm-multi-pick-panel")) {
+  if (isExtensionUiTarget(event.target)) {
     // パネル内ボタンのクリックは通常どおり動かす
+    // （Shadow DOM 内のクリックは event.target がホスト要素へ再ターゲットされる）
     return;
   }
 
@@ -490,6 +565,8 @@ const startPickMode = () => {
   document.body.style.cursor = "crosshair";
   document.addEventListener("mousemove", handlePickMouseMove, true);
   document.addEventListener("click", handlePickClick, true);
+  document.addEventListener("keydown", handlePickKeydown, true);
+  showPageToast("記事リンクをクリックしてください（Esc で終了）。", "ok");
 };
 
 /** 複数リンク選択モードを開始する。 */
@@ -500,12 +577,14 @@ const startMultiPickMode = () => {
   endPickMode();
   multiPickModeActive = true;
   multiPickedArticles = [];
+  multiCancelRequested = false;
   previousCursor = document.body.style.cursor;
   document.body.style.cursor = "crosshair";
   document.addEventListener("mousemove", handlePickMouseMove, true);
   document.addEventListener("click", handleMultiPickClick, true);
+  document.addEventListener("keydown", handlePickKeydown, true);
   renderMultiPanel();
-  showPageToast("複数選択モード開始。記事リンクをクリックしてください。", "ok");
+  showPageToast("複数選択モード開始。記事リンクをクリックしてください（Esc で終了）。", "ok");
 };
 
 /**
@@ -734,14 +813,19 @@ const runMultiPickedArticleAction = async () => {
   let overwrittenCount = 0;
   let failedCount = 0;
   let lastTitle = "";
+  const targets = [...multiPickedArticles];
+  const processedUrls = new Set();
   multiRunning = true;
+  multiCancelRequested = false;
   multiProgressCurrent = 0;
-  multiProgressTotal = multiPickedArticles.length;
+  multiProgressTotal = targets.length;
   renderMultiPanel();
 
-  for (let i = 0; i < multiPickedArticles.length; i += 1) {
-    const currentArticle = multiPickedArticles[i];
-    const currentUrl = currentArticle.url;
+  for (let i = 0; i < targets.length; i += 1) {
+    if (multiCancelRequested) {
+      break;
+    }
+    const currentUrl = targets[i].url;
     multiProgressCurrent = i + 1;
     renderMultiPanel();
     try {
@@ -749,38 +833,45 @@ const runMultiPickedArticleAction = async () => {
       lastTitle = result.title;
       if (result.overwritten) {
         overwrittenCount += 1;
-        showPageToast(
-          `上書き保存 (${i + 1}/${multiPickedArticles.length}): ${result.title}`,
-          "ok"
-        );
+        showPageToast(`上書き保存 (${i + 1}/${targets.length}): ${result.title}`, "ok");
       } else {
         successCount += 1;
-        showPageToast(`保存完了 (${i + 1}/${multiPickedArticles.length}): ${result.title}`, "ok");
-      }
-      if (i < multiPickedArticles.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 450));
+        showPageToast(`保存完了 (${i + 1}/${targets.length}): ${result.title}`, "ok");
       }
     } catch (error) {
       failedCount += 1;
       const reason = error instanceof Error ? error.message : String(error);
       console.warn(`[note→Markdown] 変換失敗: ${currentUrl}`, reason);
     }
+    processedUrls.add(currentUrl);
+
+    if (!multiCancelRequested && i < targets.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+    }
   }
 
-  if (successCount === 0 && overwrittenCount === 0) {
+  const cancelled = multiCancelRequested;
+  multiRunning = false;
+  multiCancelRequested = false;
+  // 中止した場合は未処理分だけを残し、そのまま再実行できるようにする。
+  multiPickedArticles = cancelled
+    ? multiPickedArticles.filter((article) => !processedUrls.has(article.url))
+    : multiPickedArticles;
+  renderMultiPanel();
+
+  if (!cancelled && successCount === 0 && overwrittenCount === 0) {
     throw new Error("すべての処理に失敗しました。");
   }
 
-  const mode = "download";
-  const summary = `一括完了: 新規保存 ${successCount}件 / 上書き ${overwrittenCount}件 / 失敗 ${failedCount}件`;
-  const summaryKind = failedCount > 0 ? "error" : "ok";
-  showPageToast(summary, summaryKind);
-  multiRunning = false;
-  renderMultiPanel();
+  const summary = `${cancelled ? "中止しました" : "一括完了"}: 新規保存 ${successCount}件 / 上書き ${overwrittenCount}件 / 失敗 ${failedCount}件${
+    cancelled ? ` / 未処理 ${multiPickedArticles.length}件` : ""
+  }`;
+  showPageToast(summary, failedCount > 0 ? "error" : cancelled ? "skip" : "ok");
 
   return {
     ok: true,
-    mode,
+    mode: "download",
+    cancelled,
     successCount,
     overwrittenCount,
     failedCount,
@@ -794,10 +885,14 @@ const executeMultiPickNow = async () => {
     return;
   }
   try {
-    await runMultiPickedArticleAction();
-    endMultiPickMode();
+    const result = await runMultiPickedArticleAction();
+    // 中止時は残りを再実行できるようパネルを残す。
+    if (!result.cancelled) {
+      endMultiPickMode();
+    }
   } catch (error) {
     multiRunning = false;
+    multiCancelRequested = false;
     renderMultiPanel();
     const errorMessage = error instanceof Error ? error.message : "処理に失敗しました。";
     showPageToast(`処理失敗: ${errorMessage}`, "error");
