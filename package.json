@@ -11,7 +11,8 @@
     "build:dist": "node scripts/build-dist.mjs",
     "update-like-count": "node scripts/update-like-count.mjs",
     "update:fixtures": "node scripts/update-fixtures.mjs",
-    "update:golden": "node scripts/update-golden.mjs"
+    "update:golden": "node scripts/update-golden.mjs",
+    "make:screenshots": "node scripts/make-screenshots.mjs"
   },
   "devDependencies": {
     "clean-css-cli": "^5.6.3",

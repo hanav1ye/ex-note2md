@@ -88,11 +88,28 @@ note.com の記事を Markdown 形式に変換し、クリップボードへコ�
 
 プライバシーポリシーURL: リポジトリの `PRIVACY.md` を公開URL（GitHub Pages など）で提供する
 
+## スクリーンショット
+
+`npm run make:screenshots` で `docs/screenshots/` に 640x400 で生成する（ストアの上限は5枚）。
+`dist/` の実UIに chrome API のスタブでサンプルデータを流し込んで撮影しているため、
+UI を変更したら再生成すること。
+
+| ファイル | 内容 | 添える説明文の案 |
+|----------|------|-----------------|
+| `01-popup.png` | popup 本体（タグセット適用済み） | 開いている記事をワンクリックで Markdown に |
+| `02-options-presets.png` | 保存先プリセット設定 | 保存先フォルダを3つまで登録 |
+| `03-options-image.png` | 画像取込方式 | 画像は URL 参照・ローカル保存・Base64 から選択 |
+| `04-options-tagsets.png` | タグセットプリセット | よく使うタグの組み合わせを登録して一括適用 |
+| `05-options-obsidian.png` | Obsidian 連携 | 指定ワードを [[単語]] に変換して Obsidian へ |
+
+ページ内の複数選択パネル（note.com 上に表示されるUI）は実際に拡張機能を読み込んだ状態でしか
+撮影できないため、必要であれば手動QAの際に取得する。
+
 ## 提出前チェック
 
 - [ ] `npm run build:dist` が成功する（lint / test も同時に実行される）
 - [ ] `dist/` を zip 化して提出物とする（リポジトリのルートではない）
 - [ ] `docs/manual-qa.md` の手動チェックを実施
-- [ ] スクリーンショット（1280x800 または 640x400）を用意: popup / オプション画面 / 変換結果
+- [ ] スクリーンショット（`npm run make:screenshots` で 640x400 を5枚生成）
 - [ ] プライバシーポリシーを公開URLで参照できる状態にする
 - [ ] `manifest.json` と `package.json` のバージョンを更新（ビルドで不一致を検出）

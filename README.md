@@ -174,6 +174,7 @@ npm install
 | `npm run build:dist` | 配布用 `dist/` を生成（lint / test / バージョン整合を検証し、生成後は `dist` に対しても再テスト） |
 | `npm run update:fixtures` | ゴールデンテスト用の記事フィクスチャを note.com から再取得 |
 | `npm run update:golden` | 期待Markdownを再生成（変換仕様を意図的に変えたときのみ） |
+| `npm run make:screenshots` | ストア掲載用スクリーンショット（640x400）を `docs/screenshots/` へ生成 |
 
 テストの構成:
 
