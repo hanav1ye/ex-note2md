@@ -57,13 +57,58 @@ note.com の記事を Markdown 形式に変換し、クリップボードへコ�
 
 | 権限 | 記入する説明 |
 |------|-------------|
-| `activeTab` | ユーザーが拡張機能アイコンから変換を実行したときに、開いている note 記事タブの本文DOMを読み取って Markdown に変換するために使用します。 |
+| `activeTab` | （下の「activeTab の説明」を参照。欄が短い場合は「ユーザーが拡張機能アイコンをクリックしたときに限り、アクティブなタブのURLとタイトルを読み取り、note 記事ページかの判定・対象タイトルの表示・変換要求の送信に使用します。」） |
 | `clipboardWrite` | 変換した Markdown をユーザーのクリップボードへコピーするために使用します。 |
 | `storage` | 変換設定（変換元・変換後の選択、タグ候補、タグセット、保存先プリセット名、画像取込方式、Obsidian連携の設定）を端末内に保存するために使用します。外部への送信は行いません。 |
 | `https://note.com/*` のホスト権限 | 変換対象として指定された note 記事のHTMLを取得し、本文を Markdown に変換するために使用します。 |
 | `https://assets.st-note.com/*` のホスト権限 | 画像取込方式で「画像ダウンロード」または「Base64埋込」が選択されている場合に、記事内の画像を取得するために使用します。note の画像配信ドメインです。 |
 
 リモートコードの使用: **なし**（すべてのコードは拡張機能パッケージに同梱、外部スクリプトの読み込みなし）
+
+### activeTab の説明
+
+justification 欄にそのまま貼る。
+
+```
+ユーザーが拡張機能のアイコンをクリックして popup を開いたときに限り、アクティブなタブの
+URL とタイトルを読み取ります。用途は次の3点です。
+
+1. 開いているページが note.com の記事ページ（/n/...）かどうかを判定し、記事ページでない
+   場合に適切な案内を表示するため
+2. 変換対象として「現在のタブ」が選ばれたときに、その記事タイトルを popup に表示して
+   ユーザーが対象を確認できるようにするため
+3. 変換の実行時に、そのタブのコンテンツスクリプトへ変換要求を送信するため
+
+アクセスはユーザーが拡張機能を操作した時点のタブに限定され、バックグラウンドでの監視や
+閲覧履歴の取得は行いません。取得した情報は端末内の変換処理にのみ使用し、外部への送信は
+一切ありません。
+```
+
+英語で求められた場合:
+
+```
+activeTab is used only when the user clicks the extension icon to open the popup. At that
+moment the extension reads the active tab's URL and title in order to:
+
+1. determine whether the current page is a note.com article page (/n/...) and show an
+   appropriate message if it is not,
+2. display the article title in the popup so the user can confirm the conversion target, and
+3. send the conversion request to the content script running in that tab.
+
+Access is limited to the tab the user has explicitly acted on. The extension does not monitor
+tabs in the background, does not read browsing history, and does not transmit any data
+externally. All processing happens locally on the user's device.
+```
+
+実装上の対応箇所（説明と実装が食い違わないよう、変更時はここも確認する）:
+
+| 用途 | 実装 |
+|------|------|
+| 記事ページ判定 | `popup/popup.js` の `resolveConvertTarget`（`tab.url` を `isNoteArticleUrl` で検査） |
+| 対象タイトルの表示 | `popup/popup.js` の `updateCurrentTabArticleTitle`（content script へ問い合わせ、失敗時は `tab.title` にフォールバック） |
+| 変換要求の送信 | `popup/popup.js` の `convertCurrentTab` / `startLinkPickMode` / `startMultiPickMode` |
+
+いずれも popup の操作が起点であり、バックグラウンドでタブを監視する経路は存在しない。
 
 ## データ使用の申告
 
