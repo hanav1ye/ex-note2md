@@ -11,3 +11,5 @@ node_modules/
 sourceCheck*.md
 test*.md
 likeCount-tool.md
+# エディタ設定
+.vscode/
