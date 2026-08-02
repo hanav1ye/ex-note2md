@@ -1,0 +1,9 @@
+# 改行コードは LF に統一する。
+# Windows のチェックアウトで CRLF に変換されると、
+# ゴールデンテストの期待Markdownが実際の変換出力と一致しなくなるため。
+* text=auto eol=lf
+
+# バイナリは変換しない
+*.png binary
+*.crx binary
+*.zip binary

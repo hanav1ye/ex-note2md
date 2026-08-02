@@ -11,6 +11,14 @@ import { GOLDEN_OPTIONS } from "./golden-options.mjs";
 
 const fixtures = readdirSync(FIXTURE_DIR).filter((name) => name.endsWith(".html"));
 
+/**
+ * 改行コードの差異を無視して比較できるよう正規化する。
+ * （Windows のチェックアウトで CRLF になっても結果が変わらないようにする）
+ * @param {string} text - 対象文字列。
+ * @returns {string} 正規化後の文字列。
+ */
+const normalizeNewlines = (text) => text.replace(/\r\n/g, "\n");
+
 test("フィクスチャが存在する", () => {
   assert.ok(fixtures.length > 0, "tests/fixtures に記事HTMLがありません");
 });
@@ -27,7 +35,7 @@ for (const fixture of fixtures) {
       `期待Markdownがありません。npm run update:golden を実行してください: ${expectedPath}`
     );
     const { markdown } = convertArticle(html, { options: GOLDEN_OPTIONS, url: articleUrl });
-    assert.equal(markdown, readFileSync(expectedPath, "utf8"));
+    assert.equal(normalizeNewlines(markdown), normalizeNewlines(readFileSync(expectedPath, "utf8")));
   });
 
   test(`${noteId}: タブ変換とURL変換で出力が一致する`, () => {
