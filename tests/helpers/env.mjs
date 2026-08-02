@@ -14,11 +14,19 @@ export const FIXTURE_DIR = join(ROOT, "tests", "fixtures");
 export const ARTICLE_URL = "https://note.com/hanaviye/n/nabc123";
 
 /**
- * リポジトリ内のファイルを読み込む。
- * @param {...string} segments - ルートからの相対パス。
+ * 検査対象。NTM_TARGET=dist を指定すると、ソースではなく
+ * ビルド済み（minify 済み）の dist/ を読み込んで同じテストを実行する。
+ * 実際に読み込む拡張機能は dist なので、提出前にはこちらでも検証する。
+ */
+export const TARGET = process.env.NTM_TARGET === "dist" ? "dist" : "";
+export const TARGET_DIR = TARGET ? join(ROOT, TARGET) : ROOT;
+
+/**
+ * 検査対象のファイルを読み込む。
+ * @param {...string} segments - 対象ルートからの相対パス。
  * @returns {string} ファイル内容。
  */
-export const readSource = (...segments) => readFileSync(join(ROOT, ...segments), "utf8");
+export const readSource = (...segments) => readFileSync(join(TARGET_DIR, ...segments), "utf8");
 
 /**
  * 変換ライブラリを読み込んだウィンドウを作る。

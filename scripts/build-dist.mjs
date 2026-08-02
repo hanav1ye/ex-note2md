@@ -116,4 +116,9 @@ if (emptyOrMissing.length > 0) {
   fail(`dist の出力が不足しています: ${emptyOrMissing.join(", ")}`);
 }
 
+/** minify 後の成果物そのものに対しても同じテストを流す。 */
+if (!skipVerify) {
+  run("npm run test:dist");
+}
+
 console.log(`dist build complete (version ${manifest.version})`);
