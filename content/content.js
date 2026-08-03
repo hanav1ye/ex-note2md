@@ -1,5 +1,12 @@
 // note.com 上で動作: 記事変換・リンク選択・複数一括ダウンロード
-let pickModeActive = false;
+
+/**
+ * 選択モードは常にこの3値のいずれか。単体選択と複数選択は排他で、
+ * 切り替えは必ず setPickMode() を通す（直前のモードを終了してから次へ入る）。
+ */
+const PICK_MODE = { none: "none", single: "single", multi: "multi" };
+let pickMode = PICK_MODE.none;
+
 let hoverTarget = null;
 let previousCursor = "";
 let pickContext = {
@@ -8,7 +15,6 @@ let pickContext = {
   tags: [],
   obsidianLinkify: false,
 };
-let multiPickModeActive = false;
 let multiPickedArticles = [];
 let multiPanelEl = null;
 let multiRunning = false;
@@ -293,7 +299,7 @@ const removeMultiPanel = () => {
 
 /** 複数選択パネルを現在stateで描画/更新する。 */
 const renderMultiPanel = () => {
-  if (!multiPickModeActive) {
+  if (pickMode !== PICK_MODE.multi) {
     removeMultiPanel();
     return;
   }
@@ -413,31 +419,74 @@ const renderMultiPanel = () => {
   }
 };
 
-/** 単一選択モードを終了し、イベント/表示を後片付けする。 */
-const endPickMode = () => {
-  if (!pickModeActive) {
+/**
+ * 現在のモードを完全に終了し、リスナー・カーソル・表示・選択状態を元に戻す。
+ * どのモードから呼ばれても後片付けの内容は同じにして、状態の取りこぼしを防ぐ。
+ */
+const teardownPickMode = () => {
+  if (pickMode === PICK_MODE.none) {
     return;
   }
-  pickModeActive = false;
-  clearHover();
+
+  // 登録されていないリスナーの解除は無害なので、両モード分をまとめて外す
   document.removeEventListener("mousemove", handlePickMouseMove, true);
   document.removeEventListener("click", handlePickClick, true);
-  document.removeEventListener("keydown", handlePickKeydown, true);
-  document.body.style.cursor = previousCursor;
-};
-
-/** 複数選択モードを終了し、イベント/表示を後片付けする。 */
-const endMultiPickMode = () => {
-  if (!multiPickModeActive) {
-    return;
-  }
-  multiPickModeActive = false;
-  clearHover();
-  document.removeEventListener("mousemove", handlePickMouseMove, true);
   document.removeEventListener("click", handleMultiPickClick, true);
   document.removeEventListener("keydown", handlePickKeydown, true);
+
+  clearHover();
   document.body.style.cursor = previousCursor;
+  previousCursor = "";
+
+  pickMode = PICK_MODE.none;
+
+  // 複数選択の状態はモードを抜けた時点で破棄する
+  multiPickedArticles = [];
+  multiCancelRequested = false;
+  multiProgressCurrent = 0;
+  multiProgressTotal = 0;
   removeMultiPanel();
+};
+
+/**
+ * 選択モードを切り替える。
+ * 直前のモードを必ず終了させてから次のモードへ入るため、
+ * 単体選択と複数選択が同時に有効になることはない。
+ * @param {"none"|"single"|"multi"} nextMode - 切り替え先のモード。
+ * @returns {boolean} 切り替えた場合 true。
+ */
+const setPickMode = (nextMode) => {
+  if (pickMode === nextMode) {
+    return false;
+  }
+
+  teardownPickMode();
+
+  if (nextMode === PICK_MODE.none) {
+    return true;
+  }
+
+  previousCursor = document.body.style.cursor;
+  document.body.style.cursor = "crosshair";
+  document.addEventListener("mousemove", handlePickMouseMove, true);
+  document.addEventListener(
+    "click",
+    nextMode === PICK_MODE.multi ? handleMultiPickClick : handlePickClick,
+    true
+  );
+  document.addEventListener("keydown", handlePickKeydown, true);
+  pickMode = nextMode;
+  return true;
+};
+
+/** 選択モード（単体・複数どちらも）を終了する。 */
+const endPickMode = () => {
+  setPickMode(PICK_MODE.none);
+};
+
+/** 複数選択モードを終了する（endPickMode と同じ後片付けを行う）。 */
+const endMultiPickMode = () => {
+  setPickMode(PICK_MODE.none);
 };
 
 /**
@@ -446,7 +495,7 @@ const endMultiPickMode = () => {
  * @param {KeyboardEvent} event - キーイベント。
  */
 const handlePickKeydown = (event) => {
-  if (event.key !== "Escape" || (!pickModeActive && !multiPickModeActive)) {
+  if (event.key !== "Escape" || pickMode === PICK_MODE.none) {
     return;
   }
   event.preventDefault();
@@ -461,14 +510,9 @@ const handlePickKeydown = (event) => {
     return;
   }
 
-  if (pickModeActive) {
-    endPickMode();
-    showPageToast("選択モードを終了しました。", "ok");
-    return;
-  }
-
-  endMultiPickMode();
-  showPageToast("複数選択モードを終了しました。", "ok");
+  const wasMulti = pickMode === PICK_MODE.multi;
+  endPickMode();
+  showPageToast(wasMulti ? "複数選択モードを終了しました。" : "選択モードを終了しました。", "ok");
 };
 
 /**
@@ -476,7 +520,7 @@ const handlePickKeydown = (event) => {
  * @param {MouseEvent} event - マウスイベント。
  */
 const handlePickMouseMove = (event) => {
-  if (!pickModeActive) {
+  if (pickMode === PICK_MODE.none) {
     return;
   }
   const anchor = resolveAnchorFromEvent(event);
@@ -488,7 +532,7 @@ const handlePickMouseMove = (event) => {
  * @param {MouseEvent} event - クリックイベント。
  */
 const handlePickClick = (event) => {
-  if (!pickModeActive) {
+  if (pickMode !== PICK_MODE.single) {
     return;
   }
   const anchor = resolveAnchorFromEvent(event);
@@ -523,7 +567,7 @@ const handlePickClick = (event) => {
  * @param {MouseEvent} event - クリックイベント。
  */
 const handleMultiPickClick = (event) => {
-  if (!multiPickModeActive) {
+  if (pickMode !== PICK_MODE.multi) {
     return;
   }
   if (isExtensionUiTarget(event.target)) {
@@ -555,34 +599,31 @@ const handleMultiPickClick = (event) => {
   renderMultiPanel();
 };
 
-/** 単一リンク選択モードを開始する。 */
+/**
+ * 単一リンク選択モードを開始する。
+ * 複数選択モード中に呼ばれた場合は、そちらを終了してから切り替える。
+ */
 const startPickMode = () => {
-  if (pickModeActive) {
+  const switchedFromMulti = pickMode === PICK_MODE.multi;
+  if (!setPickMode(PICK_MODE.single)) {
     return;
   }
-  pickModeActive = true;
-  previousCursor = document.body.style.cursor;
-  document.body.style.cursor = "crosshair";
-  document.addEventListener("mousemove", handlePickMouseMove, true);
-  document.addEventListener("click", handlePickClick, true);
-  document.addEventListener("keydown", handlePickKeydown, true);
-  showPageToast("記事リンクをクリックしてください（Esc で終了）。", "ok");
+  showPageToast(
+    switchedFromMulti
+      ? "複数選択モードを終了しました。記事リンクをクリックしてください（Esc で終了）。"
+      : "記事リンクをクリックしてください（Esc で終了）。",
+    "ok"
+  );
 };
 
-/** 複数リンク選択モードを開始する。 */
+/**
+ * 複数リンク選択モードを開始する。
+ * 単体選択モード中に呼ばれた場合は、そちらを終了してから切り替える。
+ */
 const startMultiPickMode = () => {
-  if (multiPickModeActive) {
+  if (!setPickMode(PICK_MODE.multi)) {
     return;
   }
-  endPickMode();
-  multiPickModeActive = true;
-  multiPickedArticles = [];
-  multiCancelRequested = false;
-  previousCursor = document.body.style.cursor;
-  document.body.style.cursor = "crosshair";
-  document.addEventListener("mousemove", handlePickMouseMove, true);
-  document.addEventListener("click", handleMultiPickClick, true);
-  document.addEventListener("keydown", handlePickKeydown, true);
   renderMultiPanel();
   showPageToast("複数選択モード開始。記事リンクをクリックしてください（Esc で終了）。", "ok");
 };
@@ -906,26 +947,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  if (message?.type === "startLinkPickMode") {
-    pickContext = {
-      outputMode: message.outputMode === "download" ? "download" : "copy",
-      downloadPreset: String(message.downloadPreset ?? "preset1"),
-      tags: normalizeUserTags(message.tags),
-      obsidianLinkify: Boolean(message.obsidianLinkify),
-    };
-    startPickMode();
-    sendResponse({ ok: true });
-    return false;
-  }
+  if (message?.type === "startLinkPickMode" || message?.type === "startMultiLinkPickMode") {
+    // 一括処理の実行中にモードを切り替えると処理途中の状態が失われるため受け付けない。
+    if (multiRunning) {
+      sendResponse({
+        ok: false,
+        error: "一括処理を実行中です。ページ上のパネルで中止してから操作してください。",
+      });
+      return false;
+    }
 
-  if (message?.type === "startMultiLinkPickMode") {
+    const isMulti = message.type === "startMultiLinkPickMode";
     pickContext = {
-      outputMode: "download",
+      outputMode: isMulti || message.outputMode === "download" ? "download" : "copy",
       downloadPreset: String(message.downloadPreset ?? "preset1"),
       tags: normalizeUserTags(message.tags),
       obsidianLinkify: Boolean(message.obsidianLinkify),
     };
-    startMultiPickMode();
+
+    if (isMulti) {
+      startMultiPickMode();
+    } else {
+      startPickMode();
+    }
     sendResponse({ ok: true });
     return false;
   }

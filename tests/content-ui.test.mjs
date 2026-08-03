@@ -236,6 +236,121 @@ test("Esc で複数選択モードを終了できる", async () => {
   assert.notEqual(win.document.body.style.cursor, "crosshair");
 });
 
+/* ------------------------------ モード切替 ------------------------------- */
+
+test("複数選択から単体選択へ切り替えると複数選択が完全に終了する", async () => {
+  const { win, send, downloads } = loadContentScript();
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  clickLink(win, "/hanaviye/n/n111");
+  await flush();
+  assert.equal(shadowOf(win).querySelector(".panel-count").textContent, "選択中: 1件");
+
+  // 複数選択モードのまま「選択する」を実行する
+  await send({ type: "startLinkPickMode", outputMode: "download", downloadPreset: "preset1", tags: [] });
+  await flush();
+
+  assert.equal(shadowOf(win).querySelector(".panel"), null, "複数選択パネルが残っています");
+
+  // 単体選択として動作し、複数選択のトグルにならないこと
+  clickLink(win, "/hanaviye/n/n222");
+  await flush(150);
+
+  assert.deepEqual(downloads, ["https://note.com/hanaviye/n/n222"]);
+  assert.equal(shadowOf(win).querySelector(".panel"), null);
+});
+
+test("単体選択から複数選択へ切り替えても単体選択のハンドラが残らない", async () => {
+  const { win, send, downloads } = loadContentScript();
+  await send({ type: "startLinkPickMode", outputMode: "download", downloadPreset: "preset1", tags: [] });
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  await flush();
+
+  clickLink(win, "/hanaviye/n/n111");
+  await flush(150);
+
+  // 複数選択として選択されるだけで、変換は実行されない
+  assert.equal(downloads.length, 0, "単体選択の変換が走っています");
+  assert.equal(shadowOf(win).querySelector(".panel-count").textContent, "選択中: 1件");
+});
+
+test("モードを切り替えてもカーソルが元に戻る", async () => {
+  const { win, send } = loadContentScript();
+  win.document.body.style.cursor = "auto";
+
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  assert.equal(win.document.body.style.cursor, "crosshair");
+
+  await send({ type: "startLinkPickMode", outputMode: "copy", downloadPreset: "preset1", tags: [] });
+  assert.equal(win.document.body.style.cursor, "crosshair");
+
+  pressEscape(win);
+  await flush();
+  assert.equal(win.document.body.style.cursor, "auto", "crosshair のまま戻っていません");
+});
+
+test("モード切替で前のモードの選択内容とホバー枠線が残らない", async () => {
+  const { win, send } = loadContentScript();
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  const anchor = win.document.querySelector('a[href="/hanaviye/n/n111"]');
+  anchor.dispatchEvent(new win.MouseEvent("mousemove", { bubbles: true }));
+  clickLink(win, "/hanaviye/n/n111");
+  await flush();
+  assert.notEqual(anchor.style.outline, "", "ホバー枠線が付いていません");
+
+  await send({ type: "startLinkPickMode", outputMode: "copy", downloadPreset: "preset1", tags: [] });
+  await flush();
+  assert.equal(anchor.style.outline, "", "ホバー枠線が残っています");
+
+  // 複数選択へ戻したときに前回の選択が残っていないこと
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  await flush();
+  assert.equal(shadowOf(win).querySelector(".panel-count").textContent, "選択中: 0件");
+});
+
+test("同じモードを二重に開始しても状態を壊さない", async () => {
+  const { win, send } = loadContentScript();
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  clickLink(win, "/hanaviye/n/n111");
+  await flush();
+
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  await flush();
+
+  assert.equal(
+    shadowOf(win).querySelector(".panel-count").textContent,
+    "選択中: 1件",
+    "同一モードの再開始で選択が失われています"
+  );
+});
+
+test("一括処理の実行中はモード切替を受け付けない", async () => {
+  const { win, send } = loadContentScript();
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  clickLink(win, "/hanaviye/n/n111");
+  clickLink(win, "/hanaviye/n/n222");
+  await flush();
+
+  shadowOf(win)
+    .querySelector('[data-role="run"]')
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await flush(15);
+
+  const response = await send({
+    type: "startLinkPickMode",
+    outputMode: "download",
+    downloadPreset: "preset1",
+    tags: [],
+  });
+
+  assert.equal(response.ok, false);
+  assert.match(response.error, /一括処理を実行中/);
+  assert.ok(shadowOf(win).querySelector(".panel"), "実行中のパネルが消えています");
+
+  // 実行は継続する
+  await flush(600);
+  assert.equal(shadowOf(win).querySelector(".panel"), null, "完走後はパネルを閉じるべきです");
+});
+
 /* ------------------------------ メッセージ検証 ---------------------------- */
 
 test("他の拡張機能からのメッセージは処理しない", async () => {
