@@ -1,9 +1,9 @@
 // 拡張機能ポップアップ: 変換元・出力先の選択と変換実行
+const t = (key, params) => NtmI18n.t(key, params);
+
 const FOLDER_PRESET_IDS = ["preset1", "preset2", "preset3"];
-const PRESET_FOLDER_REQUIRED_ERROR =
-  "ダウンロードには保存先プリセットのフォルダ設定が必要です。設定（歯車）から「保存先プリセット設定」でフォルダを選択してください。";
-const IMAGE_FOLDER_REQUIRED_ERROR =
-  "画像ダウンロードには画像保存先フォルダの設定が必要です。オプション画面の「画像取込方式」でフォルダを選択してください。";
+// 1.0.0 までは既定の表示名を日本語のまま保存していた。表示だけロケールに追従させる。
+const LEGACY_DEFAULT_PRESET_NAMES = ["プリセット1", "プリセット2", "プリセット3"];
 const IMAGE_IMPORT_MODES = ["url", "download", "base64"];
 const DEFAULT_IMAGE_FOLDER_CONFIG = { folderLabel: "", hasFolder: false };
 const $ = (id) => document.getElementById(id);
@@ -46,9 +46,9 @@ const STORAGE_KEY_NAMES = [
   "selectedTagSetId",
 ];
 const DEFAULT_PRESET_CONFIGS = {
-  preset1: { name: "プリセット1", folderLabel: "", hasFolder: false },
-  preset2: { name: "プリセット2", folderLabel: "", hasFolder: false },
-  preset3: { name: "プリセット3", folderLabel: "", hasFolder: false },
+  preset1: { name: "", folderLabel: "", hasFolder: false },
+  preset2: { name: "", folderLabel: "", hasFolder: false },
+  preset3: { name: "", folderLabel: "", hasFolder: false },
 };
 
 let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
@@ -73,7 +73,7 @@ const setStatus = (message, kind = "") => {
 const getActiveNoteTab = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) {
-    throw new Error("アクティブなタブを取得できません。");
+    throw new Error(t("error.noActiveTab"));
   }
   return tab;
 };
@@ -88,7 +88,7 @@ const startLinkPickMode = async () => {
     assertImageFolderReady(imageSettings);
     const tab = await getActiveNoteTab();
     if (!tab.url.startsWith("https://note.com/")) {
-      throw new Error("note.com ページを開いてから「選択する」を押してください。");
+      throw new Error(t("popup.error.openNoteForSinglePick"));
     }
 
     const obsidianSettings = await getStoredObsidianSettings();
@@ -100,11 +100,12 @@ const startLinkPickMode = async () => {
       obsidianLinkify: obsidianSettings.obsidianLinkify,
     });
     if (!response?.ok) {
-      throw new Error(response?.error ?? "リンク選択モードを開始できませんでした。");
+      throw new Error(response?.error ?? t("popup.error.startSinglePickFailed"));
     }
-    setStatus("ページ上で記事リンクをクリックしてください。選択後に自動実行します。", "ok");
+    setStatus(t("popup.status.pickStarted"), "ok");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "リンク選択モードを開始できませんでした。";
+    const message =
+      error instanceof Error ? error.message : t("popup.error.startSinglePickFailed");
     setStatus(message, "error");
   }
 };
@@ -114,7 +115,7 @@ const startMultiPickMode = async () => {
   try {
     const tab = await getActiveNoteTab();
     if (!tab.url.startsWith("https://note.com/")) {
-      throw new Error("note.com ページを開いてから「複数選択」を押してください。");
+      throw new Error(t("popup.error.openNoteForMultiPick"));
     }
     const obsidianSettings = await getStoredObsidianSettings();
     const response = await chrome.tabs.sendMessage(tab.id, {
@@ -124,11 +125,11 @@ const startMultiPickMode = async () => {
       obsidianLinkify: obsidianSettings.obsidianLinkify,
     });
     if (!response?.ok) {
-      throw new Error(response?.error ?? "複数選択モードを開始できませんでした。");
+      throw new Error(response?.error ?? t("popup.error.startMultiPickFailed"));
     }
-    setStatus("記事リンクを複数クリックしてください。ページ上パネルの実行ボタンで一括ダウンロードします。", "ok");
+    setStatus(t("popup.status.multiPickStarted"), "ok");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "複数選択モードを開始できませんでした。";
+    const message = error instanceof Error ? error.message : t("popup.error.startMultiPickFailed");
     setStatus(message, "error");
   }
 };
@@ -213,16 +214,16 @@ const updateCurrentTabArticleTitle = async () => {
     return;
   }
 
-  tabArticleTitleEl.textContent = "取得中…";
+  tabArticleTitleEl.textContent = t("popup.status.loadingTitle");
   tabArticleTitleEl.classList.remove("error");
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !tab.url) {
-      throw new Error("アクティブなタブを取得できません。");
+      throw new Error(t("error.noActiveTab"));
     }
     if (!isNoteArticleUrl(tab.url)) {
-      throw new Error("note.com の記事ページ（/n/...）で開いてください。");
+      throw new Error(t("error.notNoteArticlePage"));
     }
 
     let title = "";
@@ -231,19 +232,19 @@ const updateCurrentTabArticleTitle = async () => {
       if (response?.ok && response.title) {
         title = response.title;
       } else {
-        throw new Error(response?.error ?? "タイトルを取得できませんでした。");
+        throw new Error(response?.error ?? t("error.titleUnavailable"));
       }
     } catch {
       const fallbackTitle = sanitizeTabTitle(tab.title ?? "");
       if (!fallbackTitle) {
-        throw new Error("ページを再読み込みしてから、もう一度お試しください。");
+        throw new Error(t("error.reloadAndRetry"));
       }
       title = fallbackTitle;
     }
 
     tabArticleTitleEl.textContent = title;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "タイトルを取得できませんでした。";
+    const message = error instanceof Error ? error.message : t("error.titleUnavailable");
     tabArticleTitleEl.textContent = message;
     tabArticleTitleEl.classList.add("error");
   }
@@ -337,7 +338,7 @@ const renderTagSetSelect = (selectedTagSetId = "") => {
 
   const emptyOption = document.createElement("option");
   emptyOption.value = "";
-  emptyOption.textContent = "選択なし";
+  emptyOption.textContent = t("popup.tags.none");
   tagSetSelectEl.appendChild(emptyOption);
 
   presetTagSets.forEach((tagSet) => {
@@ -364,7 +365,7 @@ const applyTagSet = (tagSetId) => {
   tagSelectorEl.querySelectorAll('input[type="checkbox"]').forEach((input) => {
     input.checked = tagSet.tags.includes(normalizeTag(input.value));
   });
-  setStatus(`タグセット「${tagSet.name}」を適用しました。`, "ok");
+  setStatus(t("popup.tags.setApplied", { name: tagSet.name }), "ok");
 };
 
 /**
@@ -395,7 +396,7 @@ const renderTagSelector = (selectedTags = []) => {
       ).length;
       if (input.checked && checkedCount > MAX_TAGS) {
         input.checked = false;
-        setStatus(`タグは最大${MAX_TAGS}つまで選択できます。`, "error");
+        setStatus(t("popup.tags.maxSelected", { max: MAX_TAGS }), "error");
         return;
       }
       syncTagSetSelection();
@@ -474,11 +475,10 @@ const getConversionOptions = async () => {
 /**
  * 単一プリセット設定を正規化する。
  * @param {any} config - 生設定。
- * @param {string} fallbackName - 表示名既定値。
  * @returns {{name: string, folderLabel: string, hasFolder: boolean}} 正規化済み設定。
  */
-const sanitizePresetConfig = (config, fallbackName) => ({
-  name: String(config?.name ?? fallbackName).trim() || fallbackName,
+const sanitizePresetConfig = (config) => ({
+  name: String(config?.name ?? "").trim(),
   folderLabel: String(config?.folderLabel ?? "").trim(),
   hasFolder: Boolean(config?.hasFolder),
 });
@@ -489,10 +489,26 @@ const sanitizePresetConfig = (config, fallbackName) => ({
  * @returns {{preset1: object, preset2: object, preset3: object}} 正規化済み設定群。
  */
 const sanitizePresetConfigs = (configs) => ({
-  preset1: sanitizePresetConfig(configs?.preset1, "プリセット1"),
-  preset2: sanitizePresetConfig(configs?.preset2, "プリセット2"),
-  preset3: sanitizePresetConfig(configs?.preset3, "プリセット3"),
+  preset1: sanitizePresetConfig(configs?.preset1),
+  preset2: sanitizePresetConfig(configs?.preset2),
+  preset3: sanitizePresetConfig(configs?.preset3),
 });
+
+/**
+ * UI表示用のプリセット名を返す。
+ * 未設定または旧既定名のままなら、現在の表示言語の既定名にする。
+ * @param {string} presetId - 対象プリセットID。
+ * @param {{name?: string}|undefined} config - プリセット設定。
+ * @returns {string} 表示名。
+ */
+const presetDisplayName = (presetId, config) => {
+  const index = FOLDER_PRESET_IDS.indexOf(presetId) + 1;
+  const name = String(config?.name ?? "").trim();
+  if (!name || name === LEGACY_DEFAULT_PRESET_NAMES[index - 1]) {
+    return t("preset.defaultName", { index });
+  }
+  return name;
+};
 
 /**
  * 全フォルダプリセットが未設定か判定する。
@@ -521,7 +537,7 @@ const assertDownloadPresetReady = () => {
   if (config?.hasFolder) {
     return presetId;
   }
-  throw new Error(PRESET_FOLDER_REQUIRED_ERROR);
+  throw new Error(t("error.presetFolderRequired"));
 };
 
 /**
@@ -536,7 +552,7 @@ const assertImageFolderReady = (imageSettings) => {
   if (imageSettings.imageFolderConfig?.hasFolder) {
     return;
   }
-  throw new Error(IMAGE_FOLDER_REQUIRED_ERROR);
+  throw new Error(t("error.imageFolderRequired"));
 };
 
 /** 「プリセット未設定」ヒントの表示状態を更新する。 */
@@ -552,15 +568,18 @@ const updateDownloadPresetHint = () => {
 const renderPresetOptions = () => {
   const configuredIds = getConfiguredPresetIds();
 
-  FOLDER_PRESET_IDS.forEach((id, index) => {
+  FOLDER_PRESET_IDS.forEach((id) => {
     const option = downloadPresetEl.querySelector(`option[value="${id}"]`);
     if (!option) {
       return;
     }
     const config = presetConfigs[id];
-    const name = config?.name?.trim() || `プリセット${index + 1}`;
-    const suffix = config?.hasFolder ? ` (${config.folderLabel || "選択済み"})` : " (未設定)";
-    option.textContent = `${name}${suffix}`;
+    const suffix = config?.hasFolder
+      ? t("preset.optionSuffixConfigured", {
+          label: config.folderLabel || t("preset.folderSelected"),
+        })
+      : t("preset.optionSuffixUnset");
+    option.textContent = `${presetDisplayName(id, config)}${suffix}`;
     option.disabled = !config?.hasFolder;
   });
 
@@ -595,6 +614,10 @@ const savePreferences = async () => {
 
 /** popup起動時に保存済み設定を読み込み、UIへ反映する。 */
 const loadPreferences = async () => {
+  // 静的な文言を先に差し替えてから、保存値に依存する描画を行う。
+  await NtmI18n.init();
+  NtmI18n.applyDom(document);
+
   if (!chrome.storage?.local) {
     updateUrlFieldVisibility();
     updateTabFieldVisibility();
@@ -694,7 +717,7 @@ const saveImages = async (images, articleUrl) => {
     articleUrl,
   });
   if (!response?.ok) {
-    throw new Error(response?.error ?? "画像の保存に失敗しました。");
+    throw new Error(response?.error ?? t("error.saveImagesFailed"));
   }
 };
 
@@ -737,7 +760,7 @@ const downloadMarkdown = async (text, articleUrl) => {
     downloadPreset: getSelectedDownloadPreset(),
   });
   if (!response?.ok) {
-    throw new Error(response?.error ?? "ダウンロードに失敗しました。");
+    throw new Error(response?.error ?? t("error.downloadFailed"));
   }
   return response;
 };
@@ -753,19 +776,25 @@ const applyOutputAction = async (title, markdown, articleUrl) => {
     const result = await downloadMarkdown(markdown, articleUrl);
     setStatus("");
     if (result.overwritten) {
-      showSplash("上書き保存しました", `更新しました: ${result.filename}`);
+      showSplash(
+        t("popup.splash.overwrittenTitle"),
+        t("popup.splash.overwrittenMessage", { filename: result.filename })
+      );
       return;
     }
-    showSplash("ダウンロード完了", `保存しました: ${result.filename || title}`);
+    showSplash(
+      t("popup.splash.downloadedTitle"),
+      t("popup.splash.downloadedMessage", { filename: result.filename || title })
+    );
     return;
   }
 
   const copied = await copyMarkdown(markdown);
   if (!copied) {
-    throw new Error("クリップボードへのコピーに失敗しました。");
+    throw new Error(t("error.copyFailed"));
   }
   setStatus("");
-  showSplash("コピー完了", `コピーしました: ${title}`);
+  showSplash(t("popup.splash.copiedTitle"), t("popup.splash.copiedMessage", { title }));
 };
 
 /**
@@ -782,11 +811,11 @@ const convertCurrentTab = async (tab) => {
       ...conversionOptions,
     });
   } catch {
-    throw new Error("ページを再読み込みしてから、もう一度お試しください。");
+    throw new Error(t("error.reloadAndRetry"));
   }
 
   if (!response?.ok) {
-    throw new Error(response?.error ?? "変換に失敗しました。");
+    throw new Error(response?.error ?? t("error.convertFailed"));
   }
 
   return { title: response.title, markdown: response.markdown, articleUrl: tab.url };
@@ -803,13 +832,13 @@ const convertFromUrl = async (url) => {
     response = await NoteToMarkdown.fetchWithTimeout(url, { credentials: "omit" });
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error("記事の取得がタイムアウトしました。");
+      throw new Error(t("error.fetchTimeout"));
     }
-    throw new Error("URL から記事を取得できませんでした。");
+    throw new Error(t("error.fetchFromUrlFailed"));
   }
 
   if (!response.ok) {
-    throw new Error(`記事の取得に失敗しました（HTTP ${response.status}）。`);
+    throw new Error(t("error.fetchFailedHttp", { status: response.status }));
   }
 
   const html = await response.text();
@@ -828,27 +857,27 @@ const resolveConvertTarget = async (sourceMode) => {
   if (sourceMode === "url") {
     const url = articleUrlEl.value.trim();
     if (!url) {
-      throw new Error("記事 URL を入力してください。");
+      throw new Error(t("error.urlRequired"));
     }
     if (!isNoteArticleUrl(url)) {
-      throw new Error("note.com の記事 URL（/n/...）を入力してください。");
+      throw new Error(t("error.invalidArticleUrl"));
     }
     return { articleUrl: url, tab: null };
   }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !tab.url) {
-    throw new Error("アクティブなタブを取得できません。");
+    throw new Error(t("error.noActiveTab"));
   }
   if (!isNoteArticleUrl(tab.url)) {
-    throw new Error("note.com の記事ページ（/n/...）で開いてください。");
+    throw new Error(t("error.notNoteArticlePage"));
   }
   return { articleUrl: tab.url, tab };
 };
 
 /** popupのメイン変換処理。 */
 const convert = async () => {
-  setStatus("変換中…");
+  setStatus(t("popup.status.converting"));
   convertBtn.disabled = true;
 
   try {
@@ -866,7 +895,7 @@ const convert = async () => {
     result.markdown = await finalizeMarkdownImages(result.markdown, result.articleUrl);
     await applyOutputAction(result.title, result.markdown, result.articleUrl);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "変換に失敗しました。";
+    const message = error instanceof Error ? error.message : t("error.convertFailed");
     setStatus(message, "error");
   } finally {
     convertBtn.disabled = false;
@@ -926,7 +955,7 @@ pickUrlBtn.addEventListener("click", () => {
 
 pickMultiBtn.addEventListener("click", () => {
   if (getSelectedOutputMode() !== "download") {
-    setStatus("一括はダウンロードのみ対応です。変換後をダウンロードにしてください。", "error");
+    setStatus(t("popup.status.multiDownloadOnly"), "error");
     return;
   }
   void (async () => {
@@ -935,7 +964,7 @@ pickMultiBtn.addEventListener("click", () => {
       const imageSettings = await getStoredImageSettings();
       assertImageFolderReady(imageSettings);
     } catch (error) {
-      const message = error instanceof Error ? error.message : PRESET_FOLDER_REQUIRED_ERROR;
+      const message = error instanceof Error ? error.message : t("error.presetFolderRequired");
       setStatus(message, "error");
       return;
     }
@@ -961,12 +990,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     updateUrlFieldVisibility();
     updateTabFieldVisibility();
     articleUrlEl.value = message.url;
-    setStatus("記事URLを取得しました。ページ上で処理を実行しています。", "ok");
+    setStatus(t("popup.status.pickedUrl"), "ok");
     void savePreferences();
     sendResponse({ ok: true });
     return false;
   }
-  setStatus("記事URLの取得に失敗しました。", "error");
+  setStatus(t("popup.status.pickedUrlFailed"), "error");
   sendResponse({ ok: false });
   return false;
 });

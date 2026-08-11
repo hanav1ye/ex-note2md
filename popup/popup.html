@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 拡張機能ポップアップ UI -->
+<!-- 拡張機能ポップアップ UI（文言は data-i18n で lib/i18n.js が差し込む） -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -11,9 +11,17 @@
   <header class="popup-header">
     <div class="popup-header-text">
       <h1>note → Markdown</h1>
-      <p class="hint">note 記事を Markdown に変換します</p>
+      <p class="hint" data-i18n="popup.subtitle">note 記事を Markdown に変換します</p>
     </div>
-    <button id="settingsBtn" type="button" class="settings-button" aria-label="設定" title="設定">
+    <button
+      id="settingsBtn"
+      type="button"
+      class="settings-button"
+      aria-label="設定"
+      title="設定"
+      data-i18n-aria-label="popup.settings"
+      data-i18n-title="popup.settings"
+    >
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z" />
@@ -22,23 +30,23 @@
   </header>
 
   <section class="option-group" aria-labelledby="sourceModeLabel">
-    <h2 id="sourceModeLabel" class="option-group-title">変換元</h2>
-    <div class="segmented" role="radiogroup" aria-label="変換元">
+    <h2 id="sourceModeLabel" class="option-group-title" data-i18n="popup.source.title">変換元</h2>
+    <div class="segmented" role="radiogroup" aria-label="変換元" data-i18n-aria-label="popup.source.title">
       <label class="segment">
         <input type="radio" name="sourceMode" value="tab" checked />
-        <span>現在のタブ</span>
+        <span data-i18n="popup.source.tab">現在のタブ</span>
       </label>
       <label class="segment">
         <input type="radio" name="sourceMode" value="url" />
-        <span>URL を指定</span>
+        <span data-i18n="popup.source.url">URL を指定</span>
       </label>
     </div>
     <div id="tabField" class="tab-field">
-      <p class="tab-field-label">処理対象</p>
+      <p class="tab-field-label" data-i18n="popup.source.targetLabel">処理対象</p>
       <p id="tabArticleTitle" class="tab-article-title" aria-live="polite">—</p>
     </div>
     <div id="urlField" class="url-field hidden">
-      <label for="articleUrl">記事 URL</label>
+      <label for="articleUrl" data-i18n="popup.source.articleUrlLabel">記事 URL</label>
       <div class="url-picker-row">
         <input
           id="articleUrl"
@@ -47,46 +55,46 @@
           placeholder="https://note.com/.../n/..."
           spellcheck="false"
         />
-        <button id="pickUrlBtn" type="button" class="pick-url-button">選択する</button>
-        <button id="pickMultiBtn" type="button" class="pick-url-button">複数選択</button>
+        <button id="pickUrlBtn" type="button" class="pick-url-button" data-i18n="popup.pick.single">選択する</button>
+        <button id="pickMultiBtn" type="button" class="pick-url-button" data-i18n="popup.pick.multi">複数選択</button>
       </div>
     </div>
   </section>
 
   <section class="option-group" aria-labelledby="tagSelectorLabel">
-    <h2 id="tagSelectorLabel" class="option-group-title">タグ（候補から複数選択）</h2>
+    <h2 id="tagSelectorLabel" class="option-group-title" data-i18n="popup.tags.title">タグ（候補から複数選択）</h2>
     <div id="tagSetField" class="tag-set-field hidden">
-      <label for="tagSetSelect">タグセット</label>
+      <label for="tagSetSelect" data-i18n="popup.tags.setLabel">タグセット</label>
       <select id="tagSetSelect">
-        <option value="">選択なし</option>
+        <option value="" data-i18n="popup.tags.none">選択なし</option>
       </select>
     </div>
     <div id="tagSelector" class="tag-selector"></div>
-    <p id="tagSelectorHint" class="tag-selector-hint">
+    <p id="tagSelectorHint" class="tag-selector-hint" data-i18n="popup.tags.emptyHint">
       候補タグが未設定です。オプション画面で登録してください。
     </p>
   </section>
 
   <section class="option-group" aria-labelledby="outputModeLabel">
-    <h2 id="outputModeLabel" class="option-group-title">変換後</h2>
-    <div class="segmented" role="radiogroup" aria-label="変換後の操作">
+    <h2 id="outputModeLabel" class="option-group-title" data-i18n="popup.output.title">変換後</h2>
+    <div class="segmented" role="radiogroup" aria-label="変換後の操作" data-i18n-aria-label="popup.output.ariaLabel">
       <label class="segment">
         <input type="radio" name="outputMode" value="copy" checked />
-        <span>コピー</span>
+        <span data-i18n="popup.output.copy">コピー</span>
       </label>
       <label class="segment">
         <input type="radio" name="outputMode" value="download" />
-        <span>ダウンロード</span>
+        <span data-i18n="popup.output.download">ダウンロード</span>
       </label>
     </div>
     <div id="downloadLocationField" class="download-location hidden">
-      <label for="downloadPreset">保存先プリセット</label>
+      <label for="downloadPreset" data-i18n="popup.output.presetLabel">保存先プリセット</label>
       <select id="downloadPreset">
         <option value="preset1">プリセット1</option>
         <option value="preset2">プリセット2</option>
         <option value="preset3">プリセット3</option>
       </select>
-      <p id="downloadPresetHint" class="download-preset-hint hidden">
+      <p id="downloadPresetHint" class="download-preset-hint hidden" data-i18n="popup.output.presetHint">
         ダウンロードには保存先フォルダの設定が必要です。右上の設定から「保存先プリセット設定」でフォルダを選択してください。
       </p>
     </div>
@@ -96,15 +104,16 @@
   <div id="splash" class="splash hidden" role="alert" aria-live="assertive">
     <div id="splashMark" class="splash-mark">✓</div>
     <div class="splash-text">
-      <div id="splashTitle" class="splash-title">ダウンロード完了</div>
+      <div id="splashTitle" class="splash-title"></div>
       <div id="splashMessage" class="splash-message"></div>
     </div>
   </div>
 
   <div class="actions">
-    <button id="convertBtn" type="button">変換</button>
+    <button id="convertBtn" type="button" data-i18n="popup.convert">変換</button>
   </div>
 
+  <script src="../lib/i18n.js"></script>
   <script src="../lib/noteToMarkdown.js"></script>
   <script src="popup.js"></script>
 </body>

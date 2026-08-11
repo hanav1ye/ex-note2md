@@ -42,9 +42,35 @@ if (manifest.version !== pkg.version) {
 if (!/^\d+(\.\d+){0,3}$/.test(manifest.version)) {
   fail(`manifest.json の version 形式が不正です: ${manifest.version}`);
 }
-if ((manifest.description ?? "").length > 132) {
-  fail("manifest.json の description は 132 文字以内である必要があります。");
+
+/**
+ * name / description は __MSG_*__ 参照なので、実文言は _locales 側を検査する。
+ * default_locale の欠落や未定義メッセージは読み込み時エラーになるため事前に弾く。
+ */
+const LOCALE_DIRS = ["ja", "en"];
+const REQUIRED_MESSAGE_KEYS = ["appName", "appDescription", "actionTitle"];
+
+if (!manifest.default_locale) {
+  fail("_locales を使う場合は manifest.json に default_locale が必要です。");
 }
+if (!LOCALE_DIRS.includes(manifest.default_locale)) {
+  fail(`default_locale (${manifest.default_locale}) に対応する _locales がありません。`);
+}
+
+LOCALE_DIRS.forEach((locale) => {
+  const path = `_locales/${locale}/messages.json`;
+  if (!existsSync(path)) {
+    fail(`${path} がありません。`);
+  }
+  const messages = JSON.parse(readFileSync(path, "utf8"));
+  const missingKeys = REQUIRED_MESSAGE_KEYS.filter((key) => !messages[key]?.message);
+  if (missingKeys.length > 0) {
+    fail(`${path} にメッセージがありません: ${missingKeys.join(", ")}`);
+  }
+  if (messages.appDescription.message.length > 132) {
+    fail(`${path} の appDescription は 132 文字以内である必要があります。`);
+  }
+});
 
 /** manifest が参照するファイルの実在を確認する。 */
 const referencedFiles = [
@@ -82,10 +108,12 @@ cpSync("manifest.json", `${DIST_DIR}/manifest.json`);
 cpSync("popup/popup.html", `${DIST_DIR}/popup/popup.html`);
 cpSync("options/options.html", `${DIST_DIR}/options/options.html`);
 cpSync("icons", `${DIST_DIR}/icons`, { recursive: true });
+cpSync("_locales", `${DIST_DIR}/_locales`, { recursive: true });
 
 /** JavaScript/CSS を minify して dist 配下へ出力する。 */
 run('npx --no-install terser "background.js" -c -m -o "dist/background.js"');
 run('npx --no-install terser "content/content.js" -c -m -o "dist/content/content.js"');
+run('npx --no-install terser "lib/i18n.js" -c -m -o "dist/lib/i18n.js"');
 run('npx --no-install terser "lib/noteToMarkdown.js" -c -m -o "dist/lib/noteToMarkdown.js"');
 run('npx --no-install terser "popup/popup.js" -c -m -o "dist/popup/popup.js"');
 run('npx --no-install terser "options/options.js" -c -m -o "dist/options/options.js"');
@@ -97,7 +125,10 @@ const expectedOutputs = [
   "manifest.json",
   "background.js",
   "content/content.js",
+  "lib/i18n.js",
   "lib/noteToMarkdown.js",
+  "_locales/ja/messages.json",
+  "_locales/en/messages.json",
   "popup/popup.html",
   "popup/popup.js",
   "popup/popup.css",

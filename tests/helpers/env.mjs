@@ -121,12 +121,16 @@ export const simulateRenderedDom = (html) => {
 /**
  * chrome.storage.local と chrome.runtime を最小限に模したスタブを作る。
  * @param {object} [initialStore={}] - 初期ストア内容。
+ * @param {{uiLanguage?: string}} [options={}] - ブラウザ側の設定。
  * @returns {{chrome: object, store: object, messages: object[]}} スタブ一式。
  */
-export const createChromeStub = (initialStore = {}) => {
+export const createChromeStub = (initialStore = {}, { uiLanguage = "ja" } = {}) => {
   const store = structuredClone(initialStore);
   const messages = [];
   const chrome = {
+    i18n: {
+      getUILanguage: () => uiLanguage,
+    },
     runtime: {
       id: "test-extension-id",
       lastError: undefined,

@@ -1,5 +1,10 @@
 // note.com 上で動作: 記事変換・リンク選択・複数一括ダウンロード
 
+const t = (key, params) => NtmI18n.t(key, params);
+
+// ページ表示直後にトーストを出す経路はないが、選択モード開始前に解決させておく。
+void NtmI18n.init();
+
 /**
  * 選択モードは常にこの3値のいずれか。単体選択と複数選択は排他で、
  * 切り替えは必ず setPickMode() を通す（直前のモードを終了してから次へ入る）。
@@ -211,7 +216,7 @@ const resolveAnchorFromEvent = (event) => {
 const getAnchorTitle = (anchor) =>
   (anchor.getAttribute("aria-label") ?? anchor.textContent ?? "")
     .replace(/\s+/g, " ")
-    .trim() || "（タイトル不明）";
+    .trim() || t("content.untitled");
 
 /**
  * 一覧自動選択から除外するタイトルか判定する。
@@ -270,7 +275,7 @@ const getRenderedArticleCandidates = () => {
 const addVisibleArticlesToSelection = () => {
   const candidates = getRenderedArticleCandidates();
   if (candidates.length === 0) {
-    showPageToast("一覧内に選択可能な記事リンクが見つかりません。", "error");
+    showPageToast(t("content.toast.noListArticles"), "error");
     return;
   }
 
@@ -283,12 +288,12 @@ const addVisibleArticlesToSelection = () => {
   });
 
   if (addedCount === 0) {
-    showPageToast("一覧の記事はすでに選択済みです。", "skip");
+    showPageToast(t("content.toast.listAlreadySelected"), "skip");
     return;
   }
 
   renderMultiPanel();
-  showPageToast(`一覧から ${addedCount}件 追加しました。`, "ok");
+  showPageToast(t("content.toast.addedFromList", { count: addedCount }), "ok");
 };
 
 /** 複数選択パネルをDOMから削除する。 */
@@ -339,7 +344,7 @@ const renderMultiPanel = () => {
     const selectVisibleBtn = document.createElement("button");
     selectVisibleBtn.type = "button";
     selectVisibleBtn.dataset.role = "select-visible";
-    selectVisibleBtn.textContent = "一覧を全選択";
+    selectVisibleBtn.textContent = t("content.panel.selectVisible");
     selectVisibleBtn.addEventListener("click", () => {
       addVisibleArticlesToSelection();
     });
@@ -348,27 +353,27 @@ const renderMultiPanel = () => {
     const clearBtn = document.createElement("button");
     clearBtn.type = "button";
     clearBtn.dataset.role = "clear";
-    clearBtn.textContent = "解除";
+    clearBtn.textContent = t("content.panel.clear");
     clearBtn.addEventListener("click", () => {
       multiPickedArticles = [];
       renderMultiPanel();
-      showPageToast("選択を解除しました。", "ok");
+      showPageToast(t("content.toast.selectionCleared"), "ok");
     });
     multiPanelEl.appendChild(clearBtn);
 
     const exitBtn = document.createElement("button");
     exitBtn.type = "button";
     exitBtn.dataset.role = "exit";
-    exitBtn.textContent = "終了";
+    exitBtn.textContent = t("content.panel.exit");
     exitBtn.addEventListener("click", () => {
       endMultiPickMode();
-      showPageToast("複数選択モードを終了しました。", "ok");
+      showPageToast(t("content.toast.multiPickExited"), "ok");
     });
     multiPanelEl.appendChild(exitBtn);
 
     const hint = document.createElement("span");
     hint.className = "panel-hint";
-    hint.textContent = "Esc で終了";
+    hint.textContent = t("content.panel.escHint");
     multiPanelEl.appendChild(hint);
 
     root.appendChild(multiPanelEl);
@@ -376,14 +381,17 @@ const renderMultiPanel = () => {
 
   const countEl = multiPanelEl.querySelector(".panel-count");
   if (countEl) {
-    countEl.textContent = `選択中: ${multiPickedArticles.length}件`;
+    countEl.textContent = t("content.panel.count", { count: multiPickedArticles.length });
   }
 
   const progressEl = multiPanelEl.querySelector(".panel-progress");
   if (progressEl) {
     progressEl.textContent =
       multiRunning && multiProgressTotal > 0
-        ? `${multiProgressCurrent}/${multiProgressTotal} 件変換中...`
+        ? t("content.panel.progress", {
+            current: multiProgressCurrent,
+            total: multiProgressTotal,
+          })
         : "";
   }
 
@@ -393,9 +401,11 @@ const renderMultiPanel = () => {
     runBtn.classList.toggle("primary", !multiRunning);
     runBtn.classList.toggle("danger", multiRunning);
     if (multiRunning) {
-      runBtn.textContent = multiCancelRequested ? "中止中..." : "中止";
+      runBtn.textContent = multiCancelRequested
+        ? t("content.panel.cancelling")
+        : t("content.panel.cancel");
     } else {
-      runBtn.textContent = "実行";
+      runBtn.textContent = t("content.panel.run");
     }
   }
 
@@ -505,14 +515,17 @@ const handlePickKeydown = (event) => {
     if (!multiCancelRequested) {
       multiCancelRequested = true;
       renderMultiPanel();
-      showPageToast("中止します。現在の記事の処理完了後に停止します。", "skip");
+      showPageToast(t("content.toast.cancelRequested"), "skip");
     }
     return;
   }
 
   const wasMulti = pickMode === PICK_MODE.multi;
   endPickMode();
-  showPageToast(wasMulti ? "複数選択モードを終了しました。" : "選択モードを終了しました。", "ok");
+  showPageToast(
+    wasMulti ? t("content.toast.multiPickExited") : t("content.toast.singlePickExited"),
+    "ok"
+  );
 };
 
 /**
@@ -551,13 +564,13 @@ const handlePickClick = (event) => {
   // popup が開いたままの場合の URL 欄反映は補助的な通知に留める（受信者不在は無視）。
   chrome.runtime.sendMessage({ type: "pickedArticleUrl", url }).catch(() => {});
 
-  showPageToast("記事を処理しています…", "ok");
+  showPageToast(t("content.toast.processing"), "ok");
   void (async () => {
     try {
       await convertPickedArticle(url);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "処理に失敗しました。";
-      showPageToast(`処理失敗: ${errorMessage}`, "error");
+      const errorMessage = error instanceof Error ? error.message : t("error.processFailed");
+      showPageToast(t("content.toast.processFailed", { message: errorMessage }), "error");
     }
   })();
 };
@@ -591,10 +604,10 @@ const handleMultiPickClick = (event) => {
       url,
       title: getAnchorTitle(anchor),
     });
-    showPageToast(`追加しました: ${multiPickedArticles.length}件`, "ok");
+    showPageToast(t("content.toast.added", { count: multiPickedArticles.length }), "ok");
   } else {
     multiPickedArticles = multiPickedArticles.filter((item) => item.url !== url);
-    showPageToast(`解除しました: ${multiPickedArticles.length}件`, "ok");
+    showPageToast(t("content.toast.removed", { count: multiPickedArticles.length }), "ok");
   }
   renderMultiPanel();
 };
@@ -610,8 +623,8 @@ const startPickMode = () => {
   }
   showPageToast(
     switchedFromMulti
-      ? "複数選択モードを終了しました。記事リンクをクリックしてください（Esc で終了）。"
-      : "記事リンクをクリックしてください（Esc で終了）。",
+      ? t("content.toast.singlePickStartFromMulti")
+      : t("content.toast.singlePickStart"),
     "ok"
   );
 };
@@ -625,7 +638,7 @@ const startMultiPickMode = () => {
     return;
   }
   renderMultiPanel();
-  showPageToast("複数選択モード開始。記事リンクをクリックしてください（Esc で終了）。", "ok");
+  showPageToast(t("content.toast.multiPickStart"), "ok");
 };
 
 /**
@@ -696,7 +709,7 @@ const saveImages = async (images, articleUrl) => {
     articleUrl,
   });
   if (!response?.ok) {
-    throw new Error(response?.error ?? "画像の保存に失敗しました。");
+    throw new Error(response?.error ?? t("error.saveImagesFailed"));
   }
 };
 
@@ -774,7 +787,7 @@ const getConversionOptions = async () => {
  */
 const convertPickedArticle = async (url, options = {}) => {
   if (!url) {
-    throw new Error("記事URLが選択されていません。");
+    throw new Error(t("error.noArticleSelected"));
   }
 
   let response;
@@ -782,12 +795,12 @@ const convertPickedArticle = async (url, options = {}) => {
     response = await NoteToMarkdown.fetchWithTimeout(url, { credentials: "omit" });
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error("記事の取得がタイムアウトしました。");
+      throw new Error(t("error.fetchTimeout"));
     }
-    throw new Error("記事の取得に失敗しました。");
+    throw new Error(t("error.fetchArticleFailed"));
   }
   if (!response.ok) {
-    throw new Error(`記事の取得に失敗しました（HTTP ${response.status}）。`);
+    throw new Error(t("error.fetchFailedHttp", { status: response.status }));
   }
   const html = await response.text();
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -803,41 +816,41 @@ const convertPickedArticle = async (url, options = {}) => {
       downloadPreset: pickContext.downloadPreset,
     });
     if (!downloadResponse?.ok) {
-      throw new Error(downloadResponse?.error ?? "ダウンロードに失敗しました。");
+      throw new Error(downloadResponse?.error ?? t("error.downloadFailed"));
     }
     if (downloadResponse.overwritten) {
       if (!options.suppressToast) {
-        showPageToast(`上書き保存: ${downloadResponse.filename}`, "ok");
+        showPageToast(t("content.toast.overwritten", { filename: downloadResponse.filename }), "ok");
       }
       return {
         mode: "download",
         overwritten: true,
         title: downloadResponse.filename,
-        message: `上書き保存しました: ${downloadResponse.filename}`,
+        message: t("content.result.overwritten", { filename: downloadResponse.filename }),
       };
     }
     if (!options.suppressToast) {
-      showPageToast(`ダウンロード完了: ${result.title}`, "ok");
+      showPageToast(t("content.toast.downloaded", { title: result.title }), "ok");
     }
     return {
       mode: "download",
       overwritten: false,
       title: result.title,
-      message: `保存しました: ${result.title}`,
+      message: t("content.result.saved", { title: result.title }),
     };
   }
 
   const copied = await copyMarkdown(result.markdown);
   if (!copied) {
-    throw new Error("クリップボードへのコピーに失敗しました。");
+    throw new Error(t("error.copyFailed"));
   }
   if (!options.suppressToast) {
-    showPageToast(`コピー完了: ${result.title}`, "ok");
+    showPageToast(t("content.toast.copied", { title: result.title }), "ok");
   }
   return {
     mode: "copy",
     title: result.title,
-    message: `コピーしました: ${result.title}`,
+    message: t("content.result.copied", { title: result.title }),
   };
 };
 
@@ -847,7 +860,7 @@ const convertPickedArticle = async (url, options = {}) => {
  */
 const runMultiPickedArticleAction = async () => {
   if (!Array.isArray(multiPickedArticles) || multiPickedArticles.length === 0) {
-    throw new Error("記事URLが選択されていません。");
+    throw new Error(t("error.noArticleSelected"));
   }
 
   let successCount = 0;
@@ -874,15 +887,29 @@ const runMultiPickedArticleAction = async () => {
       lastTitle = result.title;
       if (result.overwritten) {
         overwrittenCount += 1;
-        showPageToast(`上書き保存 (${i + 1}/${targets.length}): ${result.title}`, "ok");
+        showPageToast(
+          t("content.toast.overwrittenProgress", {
+            current: i + 1,
+            total: targets.length,
+            title: result.title,
+          }),
+          "ok"
+        );
       } else {
         successCount += 1;
-        showPageToast(`保存完了 (${i + 1}/${targets.length}): ${result.title}`, "ok");
+        showPageToast(
+          t("content.toast.savedProgress", {
+            current: i + 1,
+            total: targets.length,
+            title: result.title,
+          }),
+          "ok"
+        );
       }
     } catch (error) {
       failedCount += 1;
       const reason = error instanceof Error ? error.message : String(error);
-      console.warn(`[note→Markdown] 変換失敗: ${currentUrl}`, reason);
+      console.warn(`[note→Markdown] ${t("content.log.convertFailed")}: ${currentUrl}`, reason);
     }
     processedUrls.add(currentUrl);
 
@@ -901,12 +928,17 @@ const runMultiPickedArticleAction = async () => {
   renderMultiPanel();
 
   if (!cancelled && successCount === 0 && overwrittenCount === 0) {
-    throw new Error("すべての処理に失敗しました。");
+    throw new Error(t("error.allFailed"));
   }
 
-  const summary = `${cancelled ? "中止しました" : "一括完了"}: 新規保存 ${successCount}件 / 上書き ${overwrittenCount}件 / 失敗 ${failedCount}件${
-    cancelled ? ` / 未処理 ${multiPickedArticles.length}件` : ""
-  }`;
+  const summary =
+    t("content.summary.counts", {
+      state: cancelled ? t("content.summary.cancelled") : t("content.summary.done"),
+      saved: successCount,
+      overwritten: overwrittenCount,
+      failed: failedCount,
+    }) +
+    (cancelled ? t("content.summary.remaining", { count: multiPickedArticles.length }) : "");
   showPageToast(summary, failedCount > 0 ? "error" : cancelled ? "skip" : "ok");
 
   return {
@@ -935,8 +967,8 @@ const executeMultiPickNow = async () => {
     multiRunning = false;
     multiCancelRequested = false;
     renderMultiPanel();
-    const errorMessage = error instanceof Error ? error.message : "処理に失敗しました。";
-    showPageToast(`処理失敗: ${errorMessage}`, "error");
+    const errorMessage = error instanceof Error ? error.message : t("error.processFailed");
+    showPageToast(t("content.toast.processFailed", { message: errorMessage }), "error");
   }
 };
 
@@ -948,42 +980,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "startLinkPickMode" || message?.type === "startMultiLinkPickMode") {
-    // 一括処理の実行中にモードを切り替えると処理途中の状態が失われるため受け付けない。
-    if (multiRunning) {
-      sendResponse({
-        ok: false,
-        error: "一括処理を実行中です。ページ上のパネルで中止してから操作してください。",
-      });
-      return false;
-    }
+    void (async () => {
+      // ページを開いたまま表示言語を変えられるので、モード開始のたびに読み直す。
+      await NtmI18n.reload();
 
-    const isMulti = message.type === "startMultiLinkPickMode";
-    pickContext = {
-      outputMode: isMulti || message.outputMode === "download" ? "download" : "copy",
-      downloadPreset: String(message.downloadPreset ?? "preset1"),
-      tags: normalizeUserTags(message.tags),
-      obsidianLinkify: Boolean(message.obsidianLinkify),
-    };
+      // 一括処理の実行中にモードを切り替えると処理途中の状態が失われるため受け付けない。
+      if (multiRunning) {
+        sendResponse({ ok: false, error: t("content.error.multiRunning") });
+        return;
+      }
 
-    if (isMulti) {
-      startMultiPickMode();
-    } else {
-      startPickMode();
-    }
-    sendResponse({ ok: true });
-    return false;
+      const isMulti = message.type === "startMultiLinkPickMode";
+      pickContext = {
+        outputMode: isMulti || message.outputMode === "download" ? "download" : "copy",
+        downloadPreset: String(message.downloadPreset ?? "preset1"),
+        tags: normalizeUserTags(message.tags),
+        obsidianLinkify: Boolean(message.obsidianLinkify),
+      };
+
+      if (isMulti) {
+        startMultiPickMode();
+      } else {
+        startPickMode();
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
   }
 
   if (message?.type === "getArticleTitle") {
     if (!isNoteArticleUrl(location.href)) {
-      sendResponse({ ok: false, error: "note.com の記事ページ（/n/...）で開いてください。" });
+      sendResponse({ ok: false, error: t("error.notNoteArticlePage") });
       return false;
     }
     try {
       const title = NoteToMarkdown.extractTitleFromDocument(document);
       sendResponse({ ok: true, title });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "タイトルを取得できませんでした。";
+      const errorMessage = error instanceof Error ? error.message : t("error.titleUnavailable");
       sendResponse({ ok: false, error: errorMessage });
     }
     return false;
@@ -1005,7 +1039,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       sendResponse({ ok: true, title: result.title, markdown: result.markdown });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "変換に失敗しました。";
+      const errorMessage = error instanceof Error ? error.message : t("error.convertFailed");
       sendResponse({ ok: false, error: errorMessage });
     }
   })();

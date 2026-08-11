@@ -1,0 +1,14 @@
+{
+  "appName": {
+    "message": "note to Markdown",
+    "description": "Extension name shown in the store"
+  },
+  "appDescription": {
+    "message": "[Unofficial] Convert note.com articles to Markdown. Images can be linked, saved locally, or embedded as Base64.",
+    "description": "Extension description (132 characters or fewer)"
+  },
+  "actionTitle": {
+    "message": "note → Markdown",
+    "description": "Toolbar icon tooltip"
+  }
+}

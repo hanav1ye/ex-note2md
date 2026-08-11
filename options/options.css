@@ -112,6 +112,24 @@ input[type="text"]:focus {
   border-color: var(--accent);
 }
 
+select {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+}
+
+select:focus {
+  outline: 2px solid #cce7f3;
+  border-color: var(--accent);
+}
+
 .folder-row {
   display: flex;
   flex-wrap: wrap;
@@ -224,6 +242,12 @@ button.ghost {
 
 .bulk-add-row {
   margin-bottom: 10px;
+}
+
+.transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .tag-candidate-list {

@@ -1,0 +1,14 @@
+{
+  "appName": {
+    "message": "note to Markdown",
+    "description": "拡張機能名（ストア掲載名）"
+  },
+  "appDescription": {
+    "message": "【非公式】note.com の記事を Markdown に変換します。画像は URL 参照・ローカル保存・Base64 埋込から選べます。",
+    "description": "拡張機能の説明（132文字以内）"
+  },
+  "actionTitle": {
+    "message": "note → Markdown",
+    "description": "ツールバーアイコンのツールチップ"
+  }
+}

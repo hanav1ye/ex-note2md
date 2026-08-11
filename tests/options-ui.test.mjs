@@ -50,21 +50,36 @@ const createIndexedDbStub = (handles) => ({
 
 /**
  * オプション画面を読み込む。
- * @param {{store?: object, handles?: Record<string, object>}} [options={}] - 初期状態。
- * @returns {Promise<{win: import("jsdom").DOMWindow, doc: Document, store: object}>} テスト環境。
+ * @param {{store?: object, handles?: Record<string, object>, uiLanguage?: string}} [options={}] - 初期状態。
+ * @returns {Promise<{win: import("jsdom").DOMWindow, doc: Document, store: object, downloads: object[]}>} テスト環境。
  */
-const loadOptions = async ({ store: initialStore = {}, handles = {} } = {}) => {
+const loadOptions = async ({ store: initialStore = {}, handles = {}, uiLanguage = "ja" } = {}) => {
   const dom = new JSDOM(readSource("options", "options.html"), {
     runScripts: "outside-only",
     url: "https://example.org/",
   });
   const win = dom.window;
-  const { chrome, store } = createChromeStub(initialStore);
+  const { chrome, store } = createChromeStub(initialStore, { uiLanguage });
   win.chrome = chrome;
   win.indexedDB = createIndexedDbStub(handles);
+
+  // jsdom には Blob URL とアンカーによるダウンロードが無いので、呼び出しを記録するだけにする。
+  const downloads = [];
+  const blobs = new Map();
+  win.URL.createObjectURL = (blob) => {
+    const url = `blob:stub/${blobs.size}`;
+    blobs.set(url, blob);
+    return url;
+  };
+  win.URL.revokeObjectURL = (url) => blobs.delete(url);
+  win.HTMLAnchorElement.prototype.click = function recordDownload() {
+    downloads.push({ download: this.download, blob: blobs.get(this.getAttribute("href")) });
+  };
+
+  win.eval(readSource("lib", "i18n.js"));
   win.eval(readSource("options", "options.js"));
   await flush(60);
-  return { win, doc: win.document, store };
+  return { win, doc: win.document, store, downloads };
 };
 
 const click = (win, element) => element.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
@@ -315,4 +330,238 @@ test("改行で一括追加できる", async () => {
 
   assert.deepEqual(store.presetTagCandidates, ["学習メモ", "技術検証"]);
   assert.match(doc.getElementById("tagStatus").textContent, /重複スキップ 1/);
+});
+
+/* -------------------------------- 表示言語 -------------------------------- */
+
+const change = (win, element) => element.dispatchEvent(new win.Event("change", { bubbles: true }));
+
+test("ブラウザが英語なら英語で表示する", async () => {
+  const { doc } = await loadOptions({ uiLanguage: "en" });
+  assert.equal(doc.getElementById("languageSectionTitle").textContent, "Display language");
+  assert.equal(doc.getElementById("addTagBtn").textContent, "Add");
+  assert.equal(doc.documentElement.lang, "en");
+});
+
+test("保存済みの言語設定がブラウザの言語より優先される", async () => {
+  const { doc } = await loadOptions({ store: { uiLanguage: "en" }, uiLanguage: "ja" });
+  assert.equal(doc.getElementById("languageSelect").value, "en");
+  assert.equal(doc.getElementById("tagSectionTitle").textContent, "Tag candidates");
+});
+
+test("言語を切り替えると保存され、その場で表示が変わる", async () => {
+  const { win, doc, store } = await loadOptions({ store: { presetTagCandidates: ["日記"] } });
+  assert.equal(doc.getElementById("tagSectionTitle").textContent, "タグ候補");
+
+  const select = doc.getElementById("languageSelect");
+  select.value = "en";
+  change(win, select);
+  await flush(40);
+
+  assert.equal(store.uiLanguage, "en");
+  assert.equal(doc.getElementById("tagSectionTitle").textContent, "Tag candidates");
+  assert.equal(
+    doc.querySelector("#tagCandidateList .tag-item button").textContent,
+    "Remove",
+    "JS が生成した文言が切り替わっていません"
+  );
+  assert.match(doc.getElementById("languageStatus").textContent, /English/);
+});
+
+test("プリセット名が未設定なら表示言語の既定名を出す", async () => {
+  const { doc } = await loadOptions({ uiLanguage: "en" });
+  assert.equal(doc.querySelector('[data-preset-id="preset1"] h3').textContent, "Preset 1");
+});
+
+test("旧バージョンが保存した既定名は未設定として扱う", async () => {
+  const { doc } = await loadOptions({
+    store: {
+      presetConfigs: {
+        preset1: { name: "プリセット1", folderLabel: "", hasFolder: false },
+        preset2: { name: "自分の名前", folderLabel: "", hasFolder: false },
+        preset3: { name: "", folderLabel: "", hasFolder: false },
+      },
+    },
+    uiLanguage: "en",
+  });
+
+  assert.equal(doc.querySelector('[data-preset-id="preset1"] h3').textContent, "Preset 1");
+  assert.equal(doc.getElementById("preset1Name").value, "");
+  assert.equal(
+    doc.querySelector('[data-preset-id="preset2"] h3').textContent,
+    "自分の名前",
+    "ユーザーが付けた名前は残すべきです"
+  );
+});
+
+/* ------------------------ 設定のインポート / エクスポート ------------------------ */
+
+const TRANSFER_STORE = {
+  presetTagCandidates: ["学習メモ", "技術検証"],
+  presetTagSets: [{ id: "set-1", name: "技術ノート", tags: ["学習メモ", "技術検証"] }],
+  presetObsidianLinkWords: ["Obsidian"],
+  obsidianLinkify: true,
+};
+
+/**
+ * インポート用のファイル選択を再現する。
+ * @param {import("jsdom").DOMWindow} win - 対象ウィンドウ。
+ * @param {Document} doc - 対象ドキュメント。
+ * @param {string} text - ファイル内容。
+ */
+const selectImportFile = async (win, doc, text) => {
+  const input = doc.getElementById("importSettingsInput");
+  Object.defineProperty(input, "files", {
+    value: [{ name: "settings.json", text: async () => text }],
+    configurable: true,
+  });
+  change(win, input);
+  await flush(40);
+};
+
+test("タグと Obsidian 設定をエクスポートできる", async () => {
+  const { win, doc, downloads } = await loadOptions({ store: TRANSFER_STORE });
+
+  click(win, doc.getElementById("exportSettingsBtn"));
+  await flush();
+
+  assert.equal(downloads.length, 1);
+  assert.match(downloads[0].download, /^note2md-settings-\d{8}\.json$/);
+
+  const payload = JSON.parse(await downloads[0].blob.text());
+  assert.equal(payload.type, "ex-note2md-settings");
+  assert.equal(payload.version, 1);
+  assert.deepEqual(payload.tagCandidates, ["学習メモ", "技術検証"]);
+  assert.deepEqual(payload.tagSets, [{ name: "技術ノート", tags: ["学習メモ", "技術検証"] }]);
+  assert.deepEqual(payload.obsidianLinkWords, ["Obsidian"]);
+  assert.equal(payload.obsidianLinkify, true);
+  assert.equal("presetConfigs" in payload, false, "保存先フォルダ設定は含めません");
+  assert.match(doc.getElementById("transferStatus").textContent, /エクスポート/);
+});
+
+test("インポートは既存設定へマージし、重複はスキップする", async () => {
+  const { win, doc, store } = await loadOptions({ store: TRANSFER_STORE });
+
+  await selectImportFile(
+    win,
+    doc,
+    JSON.stringify({
+      type: "ex-note2md-settings",
+      version: 1,
+      tagCandidates: ["学習メモ", "読書メモ"],
+      tagSets: [{ name: "技術ノート", tags: ["学習メモ"] }, { name: "読書", tags: ["読書メモ"] }],
+      obsidianLinkWords: ["Obsidian", "Markdown"],
+      obsidianLinkify: false,
+    })
+  );
+
+  assert.deepEqual(store.presetTagCandidates, ["学習メモ", "技術検証", "読書メモ"]);
+  assert.deepEqual(store.presetObsidianLinkWords, ["Obsidian", "Markdown"]);
+  assert.equal(store.presetTagSets.length, 2, "同名セットが二重登録されています");
+  assert.equal(store.presetTagSets[1].name, "読書");
+  assert.equal(store.obsidianLinkify, true, "既存の ON を OFF へ戻してはいけません");
+  assert.match(doc.getElementById("transferStatus").textContent, /重複スキップ 3/);
+});
+
+test("インポートしたタグセットのタグはタグ候補にも追加される", async () => {
+  const { win, doc, store } = await loadOptions();
+
+  await selectImportFile(
+    win,
+    doc,
+    JSON.stringify({
+      type: "ex-note2md-settings",
+      version: 1,
+      tagSets: [{ name: "技術ノート", tags: ["学習メモ", "技術検証"] }],
+    })
+  );
+
+  assert.deepEqual(store.presetTagCandidates, ["学習メモ", "技術検証"]);
+  assert.deepEqual(store.presetTagSets[0].tags, ["学習メモ", "技術検証"]);
+  assert.equal(doc.querySelectorAll("#tagCandidateList .tag-item").length, 2);
+});
+
+test("インポートでリンク化が有効になったら知らせる", async () => {
+  const { win, doc, store } = await loadOptions();
+
+  await selectImportFile(
+    win,
+    doc,
+    JSON.stringify({
+      type: "ex-note2md-settings",
+      version: 1,
+      obsidianLinkWords: ["Obsidian"],
+      obsidianLinkify: true,
+    })
+  );
+
+  assert.equal(store.obsidianLinkify, true);
+  assert.equal(doc.getElementById("obsidianLinkify").checked, true);
+  assert.match(doc.getElementById("transferStatus").textContent, /Obsidianリンク化を有効/);
+});
+
+test("タグセットの上限を超える分は取り込まない", async () => {
+  const existing = Array.from({ length: 9 }, (_, index) => ({
+    id: `set-${index}`,
+    name: `セット${index}`,
+    tags: ["日記"],
+  }));
+  const { win, doc, store } = await loadOptions({
+    store: { presetTagCandidates: ["日記"], presetTagSets: existing },
+  });
+
+  await selectImportFile(
+    win,
+    doc,
+    JSON.stringify({
+      type: "ex-note2md-settings",
+      version: 1,
+      tagSets: [
+        { name: "追加1", tags: ["日記"] },
+        { name: "追加2", tags: ["日記"] },
+      ],
+    })
+  );
+
+  assert.equal(store.presetTagSets.length, 10);
+  assert.match(doc.getElementById("transferStatus").textContent, /1件を取り込めませんでした/);
+});
+
+test("他アプリの JSON はインポートしない", async () => {
+  const { win, doc, store } = await loadOptions({ store: TRANSFER_STORE });
+
+  await selectImportFile(win, doc, JSON.stringify({ tagCandidates: ["乗っ取り"] }));
+
+  assert.deepEqual(store.presetTagCandidates, ["学習メモ", "技術検証"]);
+  assert.match(doc.getElementById("transferStatus").textContent, /エクスポートファイルではありません/);
+});
+
+test("壊れた JSON はインポートしない", async () => {
+  const { win, doc, store } = await loadOptions({ store: TRANSFER_STORE });
+
+  await selectImportFile(win, doc, "{ not json");
+
+  assert.deepEqual(store.presetTagCandidates, ["学習メモ", "技術検証"]);
+  assert.match(doc.getElementById("transferStatus").textContent, /確認してください/);
+});
+
+test("未対応バージョンのファイルはインポートしない", async () => {
+  const { win, doc, store } = await loadOptions({ store: TRANSFER_STORE });
+
+  await selectImportFile(
+    win,
+    doc,
+    JSON.stringify({ type: "ex-note2md-settings", version: 99, tagCandidates: ["未来"] })
+  );
+
+  assert.deepEqual(store.presetTagCandidates, ["学習メモ", "技術検証"]);
+  assert.match(doc.getElementById("transferStatus").textContent, /バージョン/);
+});
+
+test("中身が空のファイルは取り込むものが無いと伝える", async () => {
+  const { win, doc } = await loadOptions();
+
+  await selectImportFile(win, doc, JSON.stringify({ type: "ex-note2md-settings", version: 1 }));
+
+  assert.match(doc.getElementById("transferStatus").textContent, /含まれていません/);
 });

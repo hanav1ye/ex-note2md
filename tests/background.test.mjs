@@ -83,6 +83,7 @@ const loadBackground = ({ store = {}, handles = {}, fetchImpl } = {}) => {
         return { ok: true, arrayBuffer: async () => new TextEncoder().encode("image").buffer };
       }),
     chrome: {
+      i18n: { getUILanguage: () => "ja" },
       runtime: {
         id: "test-extension-id",
         onMessage: {
@@ -134,6 +135,10 @@ const loadBackground = ({ store = {}, handles = {}, fetchImpl } = {}) => {
   };
   context.self = context;
   context.globalThis = context;
+  // Service Worker の importScripts と同じく、同じグローバルへ同期的に評価する。
+  context.importScripts = (...paths) => {
+    paths.forEach((path) => vm.runInContext(readSource(...path.split("/")), context));
+  };
   vm.createContext(context);
   vm.runInContext(readSource("background.js"), context);
 
@@ -217,6 +222,24 @@ test("権限が失効している場合は再許可を案内する", async () =>
   });
   assert.equal(response.ok, false);
   assert.match(response.error, /アクセスを再許可/);
+});
+
+test("保存済みの言語設定でエラー文言を英語にする", async () => {
+  const { send } = loadBackground({
+    store: {
+      uiLanguage: "en",
+      presetConfigs: { preset1: { name: "", folderLabel: "", hasFolder: false } },
+    },
+  });
+  const response = await send({
+    type: "downloadMarkdownByPreset",
+    markdown: "x",
+    articleUrl: "https://note.com/hanaviye/n/nabc123",
+    downloadPreset: "preset1",
+  });
+
+  assert.equal(response.ok, false);
+  assert.match(response.error, /^“Preset 1” has no destination folder\./);
 });
 
 test("ファイル名を抽出できないURLは既定名で保存する", async () => {

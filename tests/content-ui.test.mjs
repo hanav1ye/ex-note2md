@@ -17,9 +17,10 @@ const PAGE_HTML = `<!doctype html><html><body>
 
 /**
  * content script を読み込んだページ環境を作る。
+ * @param {{store?: object}} [options={}] - chrome.storage.local の初期値。
  * @returns {{win: import("jsdom").DOMWindow, send: Function, downloads: string[]}} テスト環境。
  */
-const loadContentScript = () => {
+const loadContentScript = ({ store = {} } = {}) => {
   const dom = new JSDOM(PAGE_HTML, {
     url: "https://note.com/hanaviye",
     runScripts: "outside-only",
@@ -34,6 +35,7 @@ const loadContentScript = () => {
   let listener = null;
 
   win.chrome = {
+    i18n: { getUILanguage: () => "ja" },
     runtime: {
       id: "test-extension-id",
       sendMessage: async (message) => {
@@ -50,7 +52,19 @@ const loadContentScript = () => {
         },
       },
     },
-    storage: { local: { get: async () => ({}) } },
+    storage: {
+      local: {
+        get: async (keys) => {
+          const result = {};
+          (Array.isArray(keys) ? keys : [keys]).forEach((key) => {
+            if (key in store) {
+              result[key] = store[key];
+            }
+          });
+          return result;
+        },
+      },
+    },
   };
 
   win.NoteToMarkdown = {
@@ -74,6 +88,7 @@ const loadContentScript = () => {
     extractTitleFromDocument: () => "記事",
   };
 
+  win.eval(readSource("lib", "i18n.js"));
   win.eval(readSource("content", "content.js"));
 
   const send = (message, sender = { id: "test-extension-id" }) =>
@@ -349,6 +364,32 @@ test("一括処理の実行中はモード切替を受け付けない", async ()
   // 実行は継続する
   await flush(600);
   assert.equal(shadowOf(win).querySelector(".panel"), null, "完走後はパネルを閉じるべきです");
+});
+
+/* -------------------------------- 表示言語 -------------------------------- */
+
+test("保存済みの言語設定でページ上UIを英語表示にする", async () => {
+  const { win, send } = loadContentScript({ store: { uiLanguage: "en" } });
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+
+  assert.equal(shadowOf(win).querySelector(".toast").textContent, "Multi-select mode started. Click article links (Esc to exit).");
+  assert.equal(shadowOf(win).querySelector(".panel-count").textContent, "Selected: 0");
+  assert.equal(shadowOf(win).querySelector('[data-role="run"]').textContent, "Run");
+  assert.equal(shadowOf(win).querySelector(".panel-hint").textContent, "Esc to exit");
+});
+
+test("モード開始のたびに言語設定を読み直す", async () => {
+  const store = {};
+  const { win, send } = loadContentScript({ store });
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  assert.equal(shadowOf(win).querySelector('[data-role="exit"]').textContent, "終了");
+
+  // 別タブのオプション画面で言語を変えた状況を再現する
+  store.uiLanguage = "en";
+  await send({ type: "startLinkPickMode", outputMode: "copy", downloadPreset: "preset1", tags: [] });
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+
+  assert.equal(shadowOf(win).querySelector('[data-role="exit"]').textContent, "Exit");
 });
 
 /* ------------------------------ メッセージ検証 ---------------------------- */

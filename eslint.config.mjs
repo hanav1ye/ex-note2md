@@ -15,6 +15,7 @@ export default [
         ...globals.browser,
         chrome: "readonly",
         NoteToMarkdown: "readonly",
+        NtmI18n: "readonly",
       },
     },
     linterOptions: {
@@ -44,6 +45,7 @@ export default [
         ...globals.serviceworker,
         chrome: "readonly",
         indexedDB: "readonly",
+        NtmI18n: "readonly",
       },
     },
     rules: {

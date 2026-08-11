@@ -1,22 +1,40 @@
 <!DOCTYPE html>
-<!-- オプション画面: 保存先・タグ・Obsidian の設定 -->
+<!-- オプション画面: 表示言語・保存先・タグ・Obsidian・設定の入出力（文言は data-i18n で lib/i18n.js が差し込む） -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>note to Markdown — 設定</title>
+  <title data-i18n="options.documentTitle">note to Markdown — 設定</title>
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
   <main class="container">
-    <h1 class="page-title">設定</h1>
-    <p class="hint page-intro">
+    <h1 class="page-title" data-i18n="options.pageTitle">設定</h1>
+    <p class="hint page-intro" data-i18n="options.pageIntro">
       popup から変換する際の保存先・タグ・画像・Obsidian 向けオプションを管理します。
     </p>
 
+    <section class="settings-section" aria-labelledby="languageSectionTitle">
+      <h2 id="languageSectionTitle" class="settings-section-title" data-i18n="options.language.title">表示言語</h2>
+      <p class="hint inline" data-i18n="options.language.hint">
+        popup・オプション画面・ページ上の通知で使う言語を選びます。「自動」はブラウザの表示言語に従います。
+      </p>
+      <div class="settings-card">
+        <label>
+          <span data-i18n="options.language.label">言語</span>
+          <select id="languageSelect">
+            <option value="auto" data-i18n="options.language.auto">自動（ブラウザの言語に従う）</option>
+            <option value="ja" data-i18n="options.language.ja">日本語</option>
+            <option value="en" data-i18n="options.language.en">English</option>
+          </select>
+        </label>
+        <div id="languageStatus" class="status" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
     <section class="settings-section" aria-labelledby="presetSectionTitle">
-      <h2 id="presetSectionTitle" class="settings-section-title">保存先プリセット設定</h2>
-      <p class="hint inline">
+      <h2 id="presetSectionTitle" class="settings-section-title" data-i18n="options.preset.title">保存先プリセット設定</h2>
+      <p class="hint inline" data-i18n="options.preset.hint">
         ダウンロードを使うには、いずれかのプリセットで保存先フォルダを選択してください（必須）。
         Downloads フォルダ直下への保存はできません。サブフォルダ（例: Downloads\note-markdown）を指定してください。
       </p>
@@ -24,76 +42,76 @@
         <article class="preset-card" data-preset-id="preset1">
           <h3>プリセット1</h3>
           <label>
-            表示名
-            <input id="preset1Name" type="text" maxlength="40" placeholder="例: 仕事メモ" spellcheck="false" />
+            <span data-i18n="options.preset.nameLabel">表示名</span>
+            <input id="preset1Name" type="text" maxlength="40" placeholder="例: 仕事メモ" data-i18n-placeholder="options.preset.namePlaceholder1" spellcheck="false" />
           </label>
           <div class="folder-row">
             <span id="preset1Folder" class="folder-label">未設定（フォルダ未選択）</span>
-            <button id="preset1Grant" type="button" class="grant hidden">アクセスを再許可</button>
-            <button id="preset1Pick" type="button">フォルダを選択</button>
-            <button id="preset1Clear" type="button" class="ghost">解除</button>
+            <button id="preset1Grant" type="button" class="grant hidden" data-i18n="options.preset.grant">アクセスを再許可</button>
+            <button id="preset1Pick" type="button" data-i18n="options.preset.pick">フォルダを選択</button>
+            <button id="preset1Clear" type="button" class="ghost" data-i18n="options.preset.clear">解除</button>
           </div>
         </article>
 
         <article class="preset-card" data-preset-id="preset2">
           <h3>プリセット2</h3>
           <label>
-            表示名
-            <input id="preset2Name" type="text" maxlength="40" placeholder="例: Obsidian Inbox" spellcheck="false" />
+            <span data-i18n="options.preset.nameLabel">表示名</span>
+            <input id="preset2Name" type="text" maxlength="40" placeholder="例: Obsidian Inbox" data-i18n-placeholder="options.preset.namePlaceholder2" spellcheck="false" />
           </label>
           <div class="folder-row">
             <span id="preset2Folder" class="folder-label">未設定（フォルダ未選択）</span>
-            <button id="preset2Grant" type="button" class="grant hidden">アクセスを再許可</button>
-            <button id="preset2Pick" type="button">フォルダを選択</button>
-            <button id="preset2Clear" type="button" class="ghost">解除</button>
+            <button id="preset2Grant" type="button" class="grant hidden" data-i18n="options.preset.grant">アクセスを再許可</button>
+            <button id="preset2Pick" type="button" data-i18n="options.preset.pick">フォルダを選択</button>
+            <button id="preset2Clear" type="button" class="ghost" data-i18n="options.preset.clear">解除</button>
           </div>
         </article>
 
         <article class="preset-card" data-preset-id="preset3">
           <h3>プリセット3</h3>
           <label>
-            表示名
-            <input id="preset3Name" type="text" maxlength="40" placeholder="例: 公開記事" spellcheck="false" />
+            <span data-i18n="options.preset.nameLabel">表示名</span>
+            <input id="preset3Name" type="text" maxlength="40" placeholder="例: 公開記事" data-i18n-placeholder="options.preset.namePlaceholder3" spellcheck="false" />
           </label>
           <div class="folder-row">
             <span id="preset3Folder" class="folder-label">未設定（フォルダ未選択）</span>
-            <button id="preset3Grant" type="button" class="grant hidden">アクセスを再許可</button>
-            <button id="preset3Pick" type="button">フォルダを選択</button>
-            <button id="preset3Clear" type="button" class="ghost">解除</button>
+            <button id="preset3Grant" type="button" class="grant hidden" data-i18n="options.preset.grant">アクセスを再許可</button>
+            <button id="preset3Pick" type="button" data-i18n="options.preset.pick">フォルダを選択</button>
+            <button id="preset3Clear" type="button" class="ghost" data-i18n="options.preset.clear">解除</button>
           </div>
         </article>
       </div>
     </section>
 
     <section class="settings-section" aria-labelledby="imageImportSectionTitle">
-      <h2 id="imageImportSectionTitle" class="settings-section-title">画像取込方式</h2>
-      <p class="hint inline">
+      <h2 id="imageImportSectionTitle" class="settings-section-title" data-i18n="options.image.title">画像取込方式</h2>
+      <p class="hint inline" data-i18n="options.image.hint">
         変換時の画像の扱いを選びます。画像ダウンロードを選ぶ場合は、Markdown 保存先とは別の画像保存先フォルダを設定してください（必須）。
       </p>
       <div class="settings-card">
-        <div class="image-import-options" role="radiogroup" aria-label="画像取込方式">
+        <div class="image-import-options" role="radiogroup" aria-label="画像取込方式" data-i18n-aria-label="options.image.title">
           <label class="radio-row">
             <input type="radio" name="imageImportMode" value="url" checked />
-            <span>note URL参照</span>
+            <span data-i18n="options.image.modeUrl">note URL参照</span>
           </label>
           <label class="radio-row">
             <input type="radio" name="imageImportMode" value="download" />
-            <span>画像ダウンロード（note ID フォルダ内に img1.png 形式で保存）</span>
+            <span data-i18n="options.image.modeDownload">画像ダウンロード（note ID フォルダ内に img1.png 形式で保存）</span>
           </label>
           <label class="radio-row">
             <input type="radio" name="imageImportMode" value="base64" />
-            <span>Base64埋込</span>
+            <span data-i18n="options.image.modeBase64">Base64埋込</span>
           </label>
         </div>
         <div id="imageFolderField" class="image-folder-field hidden">
           <div class="folder-row">
             <span id="imageFolderLabel" class="folder-label">未設定（フォルダ未選択）</span>
-            <button id="imageFolderGrant" type="button" class="grant hidden">アクセスを再許可</button>
-            <button id="imageFolderPick" type="button">フォルダを選択</button>
-            <button id="imageFolderClear" type="button" class="ghost">解除</button>
+            <button id="imageFolderGrant" type="button" class="grant hidden" data-i18n="options.preset.grant">アクセスを再許可</button>
+            <button id="imageFolderPick" type="button" data-i18n="options.preset.pick">フォルダを選択</button>
+            <button id="imageFolderClear" type="button" class="ghost" data-i18n="options.preset.clear">解除</button>
           </div>
-          <p class="hint inline">
-            指定フォルダ配下に note ID のフォルダを作成し、その中へ画像を保存します。Markdown からは <code>{note ID}/img1.png</code> 形式で参照します。
+          <p class="hint inline" data-i18n="options.image.folderHint">
+            指定フォルダ配下に note ID のフォルダを作成し、その中へ画像を保存します。Markdown からは {note ID}/img1.png 形式で参照します。
           </p>
         </div>
         <div id="imageImportStatus" class="status" role="status" aria-live="polite"></div>
@@ -101,8 +119,8 @@
     </section>
 
     <section class="settings-section" aria-labelledby="tagSectionTitle">
-      <h2 id="tagSectionTitle" class="settings-section-title">タグ候補</h2>
-      <p class="hint inline">
+      <h2 id="tagSectionTitle" class="settings-section-title" data-i18n="options.tag.title">タグ候補</h2>
+      <p class="hint inline" data-i18n="options.tag.hint">
         事前に使うタグを1つずつ登録しておくと、popup ではチェックで複数選択できます。
       </p>
       <div class="settings-card">
@@ -112,52 +130,53 @@
             type="text"
             maxlength="64"
             placeholder="例: 学習メモ"
+            data-i18n-placeholder="options.tag.placeholder"
             spellcheck="false"
           />
-          <button id="addTagBtn" type="button">追加</button>
+          <button id="addTagBtn" type="button" data-i18n="common.add">追加</button>
         </div>
         <div class="bulk-add-row">
-          <button id="openTagBulkModalBtn" type="button" class="ghost">改行で一括追加</button>
+          <button id="openTagBulkModalBtn" type="button" class="ghost" data-i18n="options.tag.bulkAdd">改行で一括追加</button>
         </div>
         <div id="tagCandidateList" class="tag-candidate-list"></div>
-        <p id="tagCandidateEmptyHint" class="hint inline empty-hint">タグ候補はまだありません。</p>
+        <p id="tagCandidateEmptyHint" class="hint inline empty-hint" data-i18n="options.tag.empty">タグ候補はまだありません。</p>
         <div id="tagStatus" class="status" role="status" aria-live="polite"></div>
       </div>
     </section>
 
     <section class="settings-section" aria-labelledby="tagSetSectionTitle">
-      <h2 id="tagSetSectionTitle" class="settings-section-title">タグセットプリセット</h2>
-      <p class="hint inline">
+      <h2 id="tagSetSectionTitle" class="settings-section-title" data-i18n="options.tagSet.title">タグセットプリセット</h2>
+      <p id="tagSetSectionHint" class="hint inline">
         よく使うタグの組み合わせを登録しておくと、popup で一括選択できます（1セット最大 5 タグ / 最大 10 セット）。
       </p>
       <div class="settings-card">
         <label>
-          セット名
-          <input id="tagSetNameInput" type="text" maxlength="40" placeholder="例: 技術ノート" spellcheck="false" />
+          <span data-i18n="options.tagSet.nameLabel">セット名</span>
+          <input id="tagSetNameInput" type="text" maxlength="40" placeholder="例: 技術ノート" data-i18n-placeholder="options.tagSet.namePlaceholder" spellcheck="false" />
         </label>
-        <p class="hint inline">タグ候補から選択（最大 5 つ）</p>
+        <p id="tagSetSelectHint" class="hint inline">タグ候補から選択（最大 5 つ）</p>
         <div id="tagSetTagSelector" class="tag-candidate-list"></div>
-        <p id="tagSetTagEmptyHint" class="hint inline empty-hint">
+        <p id="tagSetTagEmptyHint" class="hint inline empty-hint" data-i18n="options.tagSet.tagsEmpty">
           先に「タグ候補」でタグを登録してください。
         </p>
         <div class="bulk-add-row tag-set-form-actions">
-          <button id="saveTagSetBtn" type="button">セットを追加</button>
-          <button id="cancelTagSetEditBtn" type="button" class="ghost hidden">編集をやめる</button>
+          <button id="saveTagSetBtn" type="button" data-i18n="options.tagSet.save">セットを追加</button>
+          <button id="cancelTagSetEditBtn" type="button" class="ghost hidden" data-i18n="options.tagSet.cancelEdit">編集をやめる</button>
         </div>
         <div id="tagSetList" class="tag-set-list"></div>
-        <p id="tagSetEmptyHint" class="hint inline empty-hint">タグセットはまだありません。</p>
+        <p id="tagSetEmptyHint" class="hint inline empty-hint" data-i18n="options.tagSet.empty">タグセットはまだありません。</p>
         <div id="tagSetStatus" class="status" role="status" aria-live="polite"></div>
       </div>
     </section>
 
     <section class="settings-section" aria-labelledby="obsidianSectionTitle">
-      <h2 id="obsidianSectionTitle" class="settings-section-title">Obsidianで活用する</h2>
+      <h2 id="obsidianSectionTitle" class="settings-section-title" data-i18n="options.obsidian.title">Obsidianで活用する</h2>
       <div class="settings-card">
         <label class="toggle-row">
           <input id="obsidianLinkify" type="checkbox" />
-          <span>Obsidianリンク化する</span>
+          <span data-i18n="options.obsidian.toggle">Obsidianリンク化する</span>
         </label>
-        <p class="hint inline">
+        <p class="hint inline" data-i18n="options.obsidian.hint">
           ON にすると、下記ワードが本文中で [[単語]] に変換されます。
         </p>
         <div class="tag-add-row">
@@ -166,16 +185,35 @@
             type="text"
             maxlength="64"
             placeholder="例: Obsidian"
+            data-i18n-placeholder="options.obsidian.placeholder"
             spellcheck="false"
           />
-          <button id="addObsidianWordBtn" type="button">追加</button>
+          <button id="addObsidianWordBtn" type="button" data-i18n="common.add">追加</button>
         </div>
         <div class="bulk-add-row">
-          <button id="openObsidianBulkModalBtn" type="button" class="ghost">改行で一括追加</button>
+          <button id="openObsidianBulkModalBtn" type="button" class="ghost" data-i18n="options.tag.bulkAdd">改行で一括追加</button>
         </div>
         <div id="obsidianWordList" class="tag-candidate-list"></div>
-        <p id="obsidianWordEmptyHint" class="hint inline empty-hint">リンク化ワードはまだありません。</p>
+        <p id="obsidianWordEmptyHint" class="hint inline empty-hint" data-i18n="options.obsidian.empty">リンク化ワードはまだありません。</p>
         <div id="obsidianStatus" class="status" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="settings-section" aria-labelledby="transferSectionTitle">
+      <h2 id="transferSectionTitle" class="settings-section-title" data-i18n="options.transfer.title">設定のインポート / エクスポート</h2>
+      <p class="hint inline" data-i18n="options.transfer.hint">
+        タグ候補・タグセットプリセット・Obsidian リンク化設定を JSON ファイルで持ち出し／取り込みできます。
+      </p>
+      <div class="settings-card">
+        <div class="bulk-add-row transfer-actions">
+          <button id="exportSettingsBtn" type="button" data-i18n="options.transfer.export">エクスポート</button>
+          <button id="importSettingsBtn" type="button" class="ghost" data-i18n="options.transfer.import">インポート</button>
+          <input id="importSettingsInput" type="file" accept="application/json,.json" class="hidden" />
+        </div>
+        <p class="hint inline" data-i18n="options.transfer.importHint">
+          インポートは既存の設定へ追加（マージ）します。同じタグ・同じ名前のセット・同じワードはスキップされ、既存の登録が消えることはありません。
+        </p>
+        <div id="transferStatus" class="status" role="status" aria-live="polite"></div>
       </div>
     </section>
 
@@ -183,23 +221,23 @@
 
   <dialog id="bulkAddModal" class="bulk-add-modal" aria-labelledby="bulkAddModalTitle">
     <form id="bulkAddForm" method="dialog" class="bulk-add-form">
-      <h3 id="bulkAddModalTitle" class="bulk-add-title">改行で一括追加</h3>
-      <p id="bulkAddModalHint" class="hint inline">
+      <h3 id="bulkAddModalTitle" class="bulk-add-title" data-i18n="options.bulk.title">改行で一括追加</h3>
+      <p id="bulkAddModalHint" class="hint inline" data-i18n="options.bulk.hint">
         1行に1件入力してください。既に登録済みの値は自動でスキップされます。
       </p>
       <textarea
         id="bulkAddTextarea"
         class="bulk-add-textarea"
         rows="10"
-        placeholder="例:\n学習メモ\n技術検証"
       ></textarea>
       <div class="bulk-add-actions">
-        <button id="bulkAddCancelBtn" type="button" class="ghost">キャンセル</button>
-        <button id="bulkAddSubmitBtn" type="submit">登録する</button>
+        <button id="bulkAddCancelBtn" type="button" class="ghost" data-i18n="common.cancel">キャンセル</button>
+        <button id="bulkAddSubmitBtn" type="submit" data-i18n="options.bulk.submit">登録する</button>
       </div>
     </form>
   </dialog>
 
+  <script src="../lib/i18n.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

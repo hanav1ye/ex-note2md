@@ -1,5 +1,9 @@
-// オプション画面: 保存先プリセット（最大3つ）とタグ候補の管理
+// オプション画面: 表示言語・保存先プリセット（最大3つ）・タグ候補・設定の入出力の管理
+const t = (key, params) => NtmI18n.t(key, params);
+
 const PRESET_IDS = ["preset1", "preset2", "preset3"];
+// 1.0.0 までは既定の表示名を日本語のまま保存していた。表示だけロケールに追従させる。
+const LEGACY_DEFAULT_PRESET_NAMES = ["プリセット1", "プリセット2", "プリセット3"];
 const IMAGE_IMPORT_MODES = ["url", "download", "base64"];
 const STORAGE_KEYS = [
   "presetConfigs",
@@ -16,7 +20,13 @@ const IMAGE_FOLDER_HANDLE_KEY = "imageFolder";
 const DB_NAME = "noteToMarkdownPresets";
 const DB_STORE = "directoryHandles";
 
+/** エクスポートファイルの識別子。取り込み時に他アプリの JSON を弾くために使う。 */
+const TRANSFER_FILE_TYPE = "ex-note2md-settings";
+const TRANSFER_FILE_VERSION = 1;
+
 const $ = (id) => document.getElementById(id);
+const languageSelectEl = $("languageSelect");
+const languageStatusEl = $("languageStatus");
 const tagStatusEl = $("tagStatus");
 const obsidianStatusEl = $("obsidianStatus");
 const newTagInputEl = $("newTagInput");
@@ -25,6 +35,8 @@ const openTagBulkModalBtn = $("openTagBulkModalBtn");
 const tagCandidateListEl = $("tagCandidateList");
 const tagCandidateEmptyHintEl = $("tagCandidateEmptyHint");
 const tagSetStatusEl = $("tagSetStatus");
+const tagSetSectionHintEl = $("tagSetSectionHint");
+const tagSetSelectHintEl = $("tagSetSelectHint");
 const tagSetNameInputEl = $("tagSetNameInput");
 const tagSetTagSelectorEl = $("tagSetTagSelector");
 const tagSetTagEmptyHintEl = $("tagSetTagEmptyHint");
@@ -51,6 +63,10 @@ const bulkAddModalTitleEl = $("bulkAddModalTitle");
 const bulkAddModalHintEl = $("bulkAddModalHint");
 const bulkAddTextareaEl = $("bulkAddTextarea");
 const bulkAddCancelBtn = $("bulkAddCancelBtn");
+const exportSettingsBtn = $("exportSettingsBtn");
+const importSettingsBtn = $("importSettingsBtn");
+const importSettingsInputEl = $("importSettingsInput");
+const transferStatusEl = $("transferStatus");
 
 const BULK_TARGETS = {
   tag: "tag",
@@ -58,16 +74,18 @@ const BULK_TARGETS = {
 };
 
 const STATUS_TARGETS = {
+  language: "language",
   tag: "tag",
   tagSet: "tagSet",
   obsidian: "obsidian",
   image: "image",
+  transfer: "transfer",
 };
 
 const DEFAULT_PRESET_CONFIGS = {
-  preset1: { name: "プリセット1", folderLabel: "", hasFolder: false },
-  preset2: { name: "プリセット2", folderLabel: "", hasFolder: false },
-  preset3: { name: "プリセット3", folderLabel: "", hasFolder: false },
+  preset1: { name: "", folderLabel: "", hasFolder: false },
+  preset2: { name: "", folderLabel: "", hasFolder: false },
+  preset3: { name: "", folderLabel: "", hasFolder: false },
 };
 const DEFAULT_IMAGE_FOLDER_CONFIG = { folderLabel: "", hasFolder: false };
 
@@ -84,11 +102,14 @@ let currentBulkTarget = BULK_TARGETS.tag;
 let permissionStates = {};
 
 /**
- * ステータス出力先（タグ/Obsidian）に対応する要素を返す。
- * @param {"tag"|"obsidian"} target - ステータスターゲット。
+ * ステータス出力先に対応する要素を返す。
+ * @param {string} target - ステータスターゲット。
  * @returns {HTMLElement|null} 対応要素。
  */
 const statusElementByTarget = (target) => {
+  if (target === STATUS_TARGETS.language) {
+    return languageStatusEl;
+  }
   if (target === STATUS_TARGETS.obsidian) {
     return obsidianStatusEl;
   }
@@ -98,12 +119,15 @@ const statusElementByTarget = (target) => {
   if (target === STATUS_TARGETS.image) {
     return imageImportStatusEl;
   }
+  if (target === STATUS_TARGETS.transfer) {
+    return transferStatusEl;
+  }
   return tagStatusEl;
 };
 
 /**
  * 指定ターゲットのステータス表示を消去する。
- * @param {"tag"|"obsidian"} target - 消去対象。
+ * @param {string} target - 消去対象。
  */
 const clearStatus = (target) => {
   const el = statusElementByTarget(target);
@@ -115,8 +139,8 @@ const clearStatus = (target) => {
 };
 
 /**
- * 指定ターゲットへステータスを表示し、反対側はクリアする。
- * @param {"tag"|"obsidian"} target - 表示先ターゲット。
+ * 指定ターゲットへステータスを表示し、他はクリアする。
+ * @param {string} target - 表示先ターゲット。
  * @param {string} message - 表示文言。
  */
 const setStatus = (target, message) => {
@@ -144,11 +168,10 @@ const setStatus = (target, message) => {
 /**
  * 単一プリセット設定を正規化する。
  * @param {any} config - 生設定。
- * @param {string} fallbackName - 表示名の既定値。
  * @returns {{name: string, folderLabel: string, hasFolder: boolean}} 正規化済み設定。
  */
-const sanitizePresetConfig = (config, fallbackName) => ({
-  name: String(config?.name ?? fallbackName).trim() || fallbackName,
+const sanitizePresetConfig = (config) => ({
+  name: String(config?.name ?? "").trim(),
   folderLabel: String(config?.folderLabel ?? "").trim(),
   hasFolder: Boolean(config?.hasFolder),
 });
@@ -159,10 +182,26 @@ const sanitizePresetConfig = (config, fallbackName) => ({
  * @returns {{preset1: object, preset2: object, preset3: object}} 正規化済み設定群。
  */
 const sanitizePresetConfigs = (configs) => ({
-  preset1: sanitizePresetConfig(configs?.preset1, "プリセット1"),
-  preset2: sanitizePresetConfig(configs?.preset2, "プリセット2"),
-  preset3: sanitizePresetConfig(configs?.preset3, "プリセット3"),
+  preset1: sanitizePresetConfig(configs?.preset1),
+  preset2: sanitizePresetConfig(configs?.preset2),
+  preset3: sanitizePresetConfig(configs?.preset3),
 });
+
+/**
+ * UI表示用のプリセット名を返す。
+ * 未設定または旧既定名のままなら、現在の表示言語の既定名にする。
+ * @param {string} presetId - 対象プリセットID。
+ * @param {{name?: string}|undefined} config - プリセット設定。
+ * @returns {string} 表示名。
+ */
+const presetDisplayName = (presetId, config) => {
+  const index = PRESET_IDS.indexOf(presetId) + 1;
+  const name = String(config?.name ?? "").trim();
+  if (!name || name === LEGACY_DEFAULT_PRESET_NAMES[index - 1]) {
+    return t("preset.defaultName", { index });
+  }
+  return name;
+};
 
 /**
  * 画像取込方式を正規化する。
@@ -215,15 +254,15 @@ const buildFolderLabel = (config, handleKey, unsetLabel) => {
   if (!config.hasFolder) {
     return { text: unsetLabel, needsPermission: false };
   }
-  const name = config.folderLabel || "フォルダ名不明";
+  const name = config.folderLabel || t("common.folderUnknown");
   const state = permissionStates[handleKey];
   if (state === "prompt") {
-    return { text: `設定済み: ${name}（アクセス許可の再取得が必要）`, needsPermission: true };
+    return { text: t("options.preset.folderNeedsPermission", { name }), needsPermission: true };
   }
   if (state === "missing") {
-    return { text: `${name}（フォルダ情報が見つかりません。選択し直してください）`, needsPermission: true };
+    return { text: t("options.preset.folderNotFound", { name }), needsPermission: true };
   }
-  return { text: `設定済み: ${name}`, needsPermission: false };
+  return { text: t("options.preset.folderConfigured", { name }), needsPermission: false };
 };
 
 /**
@@ -245,7 +284,7 @@ const renderImageFolderField = () => {
   applyFolderLabel(
     imageFolderLabelEl,
     imageFolderGrantBtn,
-    buildFolderLabel(imageFolderConfig, IMAGE_FOLDER_HANDLE_KEY, "未設定（フォルダ未選択）")
+    buildFolderLabel(imageFolderConfig, IMAGE_FOLDER_HANDLE_KEY, t("common.folderUnset"))
   );
   updateImageFolderVisibility();
 };
@@ -282,9 +321,10 @@ const createTagSetId = () => `tagset-${Date.now()}-${Math.random().toString(36).
 /**
  * タグセット配列を正規化する（不正値・重複タグ・上限超過を除去）。
  * @param {unknown[]} sets - 保存値。
+ * @param {number} [limit=MAX_TAG_SETS] - 残す最大件数。
  * @returns {{id: string, name: string, tags: string[]}[]} 正規化済みタグセット一覧。
  */
-const sanitizeTagSets = (sets) => {
+const sanitizeTagSets = (sets, limit = MAX_TAG_SETS) => {
   const normalized = [];
   (Array.isArray(sets) ? sets : []).forEach((set) => {
     const tags = sanitizeTagCandidates(set?.tags).slice(0, MAX_TAGS_PER_SET);
@@ -298,7 +338,7 @@ const sanitizeTagSets = (sets) => {
       tags,
     });
   });
-  return normalized.slice(0, MAX_TAG_SETS);
+  return normalized.slice(0, limit);
 };
 
 /**
@@ -333,7 +373,9 @@ const resetTagSetForm = () => {
  */
 function renderTagSetForm(selectedTags = []) {
   if (saveTagSetBtn) {
-    saveTagSetBtn.textContent = editingTagSetId ? "セットを更新" : "セットを追加";
+    saveTagSetBtn.textContent = editingTagSetId
+      ? t("options.tagSet.update")
+      : t("options.tagSet.save");
   }
   cancelTagSetEditBtn?.classList.toggle("hidden", !editingTagSetId);
 
@@ -353,7 +395,7 @@ function renderTagSetForm(selectedTags = []) {
     input.addEventListener("change", () => {
       if (input.checked && getTagSetFormTags().length > MAX_TAGS_PER_SET) {
         input.checked = false;
-        setStatus(STATUS_TARGETS.tagSet, `1セットに登録できるタグは最大${MAX_TAGS_PER_SET}つです。`);
+        setStatus(STATUS_TARGETS.tagSet, t("options.tagSet.maxTags", { max: MAX_TAGS_PER_SET }));
       }
     });
 
@@ -388,23 +430,23 @@ const saveTagSet = async () => {
   const tags = getTagSetFormTags();
 
   if (presetTagCandidates.length === 0) {
-    setStatus(STATUS_TARGETS.tagSet, "先に「タグ候補」でタグを登録してください。");
+    setStatus(STATUS_TARGETS.tagSet, t("options.tagSet.tagsEmpty"));
     return;
   }
   if (!name) {
-    setStatus(STATUS_TARGETS.tagSet, "セット名を入力してください。");
+    setStatus(STATUS_TARGETS.tagSet, t("options.tagSet.nameRequired"));
     return;
   }
   if (tags.length === 0) {
-    setStatus(STATUS_TARGETS.tagSet, "タグを1つ以上選択してください。");
+    setStatus(STATUS_TARGETS.tagSet, t("options.tagSet.tagRequired"));
     return;
   }
   if (presetTagSets.some((set) => set.name === name && set.id !== editingTagSetId)) {
-    setStatus(STATUS_TARGETS.tagSet, "同じ名前のセットが既に登録されています。");
+    setStatus(STATUS_TARGETS.tagSet, t("options.tagSet.duplicateName"));
     return;
   }
   if (!editingTagSetId && presetTagSets.length >= MAX_TAG_SETS) {
-    setStatus(STATUS_TARGETS.tagSet, `タグセットは最大${MAX_TAG_SETS}件までです。`);
+    setStatus(STATUS_TARGETS.tagSet, t("options.tagSet.maxSets", { max: MAX_TAG_SETS }));
     return;
   }
 
@@ -422,7 +464,7 @@ const saveTagSet = async () => {
   render();
   setStatus(
     STATUS_TARGETS.tagSet,
-    wasEditing ? `セット「${name}」を更新しました。` : `セット「${name}」を追加しました。`
+    wasEditing ? t("options.tagSet.updated", { name }) : t("options.tagSet.added", { name })
   );
 };
 
@@ -514,15 +556,19 @@ const addUniqueValues = (existingValues, incomingValues) => {
 const setBulkModalContent = (target) => {
   const isTag = target === BULK_TARGETS.tag;
   if (bulkAddModalTitleEl) {
-    bulkAddModalTitleEl.textContent = isTag ? "タグ候補を改行で一括追加" : "Obsidianリンクワードを改行で一括追加";
+    bulkAddModalTitleEl.textContent = isTag
+      ? t("options.bulk.tagTitle")
+      : t("options.bulk.obsidianTitle");
   }
   if (bulkAddModalHintEl) {
     bulkAddModalHintEl.textContent = isTag
-      ? "1行に1タグを入力してください。既に登録済みのタグは自動でスキップします。"
-      : "1行に1ワードを入力してください。既に登録済みのワードは自動でスキップします。";
+      ? t("options.bulk.tagHint")
+      : t("options.bulk.obsidianHint");
   }
   if (bulkAddTextareaEl) {
-    bulkAddTextareaEl.placeholder = isTag ? "例:\n学習メモ\n技術検証" : "例:\nObsidian\nnote";
+    bulkAddTextareaEl.placeholder = isTag
+      ? t("options.bulk.tagPlaceholder")
+      : t("options.bulk.obsidianPlaceholder");
   }
 };
 
@@ -554,7 +600,7 @@ const applyBulkAdd = async () => {
   if (normalizedValues.length === 0) {
     setStatus(
       isTag ? STATUS_TARGETS.tag : STATUS_TARGETS.obsidian,
-      isTag ? "追加するタグを入力してください。" : "追加するワードを入力してください。"
+      isTag ? t("options.tag.bulkRequired") : t("options.obsidian.bulkRequired")
     );
     return;
   }
@@ -564,7 +610,10 @@ const applyBulkAdd = async () => {
     presetTagCandidates = unique;
     await persistConfigs();
     render();
-    setStatus(STATUS_TARGETS.tag, `タグを一括登録しました（追加 ${addedCount} / 重複スキップ ${skippedCount}）。`);
+    setStatus(
+      STATUS_TARGETS.tag,
+      t("options.tag.bulkAdded", { added: addedCount, skipped: skippedCount })
+    );
   } else {
     const { unique, addedCount, skippedCount } = addUniqueValues(
       presetObsidianLinkWords,
@@ -575,11 +624,212 @@ const applyBulkAdd = async () => {
     render();
     setStatus(
       STATUS_TARGETS.obsidian,
-      `ワードを一括登録しました（追加 ${addedCount} / 重複スキップ ${skippedCount}）。`
+      t("options.obsidian.bulkAdded", { added: addedCount, skipped: skippedCount })
     );
   }
   closeBulkModal();
 };
+
+/* ------------------------- 設定のインポート / エクスポート ------------------------- */
+
+/**
+ * エクスポートする設定内容を組み立てる。
+ * 保存先フォルダのハンドルは端末とブラウザ権限に紐づくため含めない。
+ * @returns {object} エクスポート用オブジェクト。
+ */
+const buildTransferPayload = () => ({
+  type: TRANSFER_FILE_TYPE,
+  version: TRANSFER_FILE_VERSION,
+  exportedAt: new Date().toISOString(),
+  tagCandidates: [...presetTagCandidates],
+  // ID は端末ごとに振り直すため出力しない。
+  tagSets: presetTagSets.map((set) => ({ name: set.name, tags: [...set.tags] })),
+  obsidianLinkWords: [...presetObsidianLinkWords],
+  obsidianLinkify: obsidianLinkifyEnabled,
+});
+
+/**
+ * エクスポートファイル名を組み立てる。
+ * @param {Date} [now=new Date()] - 基準日時。
+ * @returns {string} ファイル名。
+ */
+const buildTransferFilename = (now = new Date()) => {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `note2md-settings-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}.json`;
+};
+
+/**
+ * 読み込んだ JSON をインポート可能な形へ検証・正規化する。
+ * @param {string} text - ファイル内容。
+ * @returns {{tagCandidates: string[], tagSets: object[], obsidianLinkWords: string[], obsidianLinkify: boolean}} 正規化済み内容。
+ * @throws {Error} 形式が不正な場合。
+ */
+const parseTransferPayload = (text) => {
+  let data;
+  try {
+    data = JSON.parse(String(text));
+  } catch {
+    throw new Error(t("options.transfer.invalidFormat"));
+  }
+
+  if (!data || typeof data !== "object" || data.type !== TRANSFER_FILE_TYPE) {
+    throw new Error(t("options.transfer.invalidFormat"));
+  }
+
+  const version = Number(data.version);
+  if (!Number.isInteger(version) || version < 1 || version > TRANSFER_FILE_VERSION) {
+    throw new Error(t("options.transfer.unsupportedVersion", { version: String(data.version) }));
+  }
+
+  return {
+    tagCandidates: sanitizeTagCandidates(data.tagCandidates),
+    // 上限超過の件数を数えたいので、ここでは切り詰めない。
+    tagSets: sanitizeTagSets(data.tagSets, Infinity),
+    obsidianLinkWords: sanitizeObsidianLinkWords(data.obsidianLinkWords),
+    obsidianLinkify: Boolean(data.obsidianLinkify),
+  };
+};
+
+/**
+ * インポート内容を現在の設定へマージする（既存は削除しない）。
+ * @param {{tagCandidates: string[], tagSets: object[], obsidianLinkWords: string[], obsidianLinkify: boolean}} payload - 取り込み内容。
+ * @returns {object} マージ結果と件数。
+ */
+const mergeTransferPayload = (payload) => {
+  // タグ候補に無いタグはタグセットから落ちるため、セットが使うタグも候補へ取り込む。
+  const incomingTags = [...payload.tagCandidates];
+  payload.tagSets.forEach((set) => {
+    set.tags.forEach((tag) => {
+      if (!incomingTags.includes(tag)) {
+        incomingTags.push(tag);
+      }
+    });
+  });
+
+  const tagResult = addUniqueValues(presetTagCandidates, incomingTags);
+  const wordResult = addUniqueValues(presetObsidianLinkWords, payload.obsidianLinkWords);
+
+  const knownNames = new Set(presetTagSets.map((set) => set.name));
+  const tagSets = [...presetTagSets];
+  let addedTagSets = 0;
+  let skippedTagSets = 0;
+  let droppedTagSets = 0;
+
+  payload.tagSets.forEach((set) => {
+    if (knownNames.has(set.name)) {
+      skippedTagSets += 1;
+      return;
+    }
+    if (tagSets.length >= MAX_TAG_SETS) {
+      droppedTagSets += 1;
+      return;
+    }
+    knownNames.add(set.name);
+    tagSets.push({ id: createTagSetId(), name: set.name, tags: [...set.tags] });
+    addedTagSets += 1;
+  });
+
+  return {
+    tagCandidates: tagResult.unique,
+    tagSets,
+    obsidianLinkWords: wordResult.unique,
+    // マージなので ON を OFF に戻すことはしない。
+    obsidianLinkify: obsidianLinkifyEnabled || payload.obsidianLinkify,
+    linkifyTurnedOn: !obsidianLinkifyEnabled && payload.obsidianLinkify,
+    addedTags: tagResult.addedCount,
+    addedTagSets,
+    addedWords: wordResult.addedCount,
+    skipped: tagResult.skippedCount + skippedTagSets + wordResult.skippedCount,
+    droppedTagSets,
+  };
+};
+
+/** 現在の設定を JSON ファイルとして書き出す。 */
+const exportSettings = () => {
+  try {
+    const filename = buildTransferFilename();
+    const blob = new Blob([`${JSON.stringify(buildTransferPayload(), null, 2)}\n`], {
+      type: "application/json",
+    });
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    // ダウンロード開始前に無効化しないよう、URL の解放は次のタスクへ回す。
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    setStatus(STATUS_TARGETS.transfer, t("options.transfer.exported", { filename }));
+  } catch {
+    setStatus(STATUS_TARGETS.transfer, t("options.transfer.exportFailed"));
+  }
+};
+
+/**
+ * 選択されたファイルを取り込み、既存設定へマージして保存する。
+ * @param {File} file - 選択されたファイル。
+ */
+const importSettings = async (file) => {
+  let text = "";
+  try {
+    text = await file.text();
+  } catch {
+    setStatus(STATUS_TARGETS.transfer, t("options.transfer.readFailed"));
+    return;
+  }
+
+  let payload;
+  try {
+    payload = parseTransferPayload(text);
+  } catch (error) {
+    setStatus(
+      STATUS_TARGETS.transfer,
+      error instanceof Error ? error.message : t("options.transfer.invalidFormat")
+    );
+    return;
+  }
+
+  const isEmpty =
+    payload.tagCandidates.length === 0 &&
+    payload.tagSets.length === 0 &&
+    payload.obsidianLinkWords.length === 0 &&
+    !payload.obsidianLinkify;
+  if (isEmpty) {
+    setStatus(STATUS_TARGETS.transfer, t("options.transfer.nothingToImport"));
+    return;
+  }
+
+  const merged = mergeTransferPayload(payload);
+  presetTagCandidates = merged.tagCandidates;
+  presetTagSets = merged.tagSets;
+  presetObsidianLinkWords = merged.obsidianLinkWords;
+  obsidianLinkifyEnabled = merged.obsidianLinkify;
+  if (obsidianLinkifyEl) {
+    obsidianLinkifyEl.checked = obsidianLinkifyEnabled;
+  }
+
+  await persistConfigs();
+  render();
+
+  const message =
+    t("options.transfer.imported", {
+      tags: merged.addedTags,
+      tagSets: merged.addedTagSets,
+      words: merged.addedWords,
+      skipped: merged.skipped,
+    }) +
+    (merged.droppedTagSets > 0
+      ? t("options.transfer.tagSetsDropped", {
+          dropped: merged.droppedTagSets,
+          max: MAX_TAG_SETS,
+        })
+      : "") +
+    (merged.linkifyTurnedOn ? t("options.transfer.linkifyEnabled") : "");
+  setStatus(STATUS_TARGETS.transfer, message);
+};
+
+/* --------------------------- ディレクトリハンドル --------------------------- */
 
 /**
  * ディレクトリハンドル保存用 IndexedDB を開く。
@@ -666,7 +916,7 @@ const refreshPermissionStates = async () => {
 /**
  * 保存済みフォルダへのアクセス権限を再要求する（ボタン操作から呼ぶこと）。
  * @param {string} handleKey - ハンドルのキー。
- * @param {"tag"|"image"} statusTarget - メッセージ表示先。
+ * @param {string} statusTarget - メッセージ表示先。
  */
 const requestFolderPermission = async (handleKey, statusTarget) => {
   try {
@@ -674,7 +924,7 @@ const requestFolderPermission = async (handleKey, statusTarget) => {
     if (!handle) {
       permissionStates[handleKey] = "missing";
       render();
-      setStatus(statusTarget, "フォルダ情報が見つかりません。フォルダを選択し直してください。");
+      setStatus(statusTarget, t("options.folder.handleMissing"));
       return;
     }
     const permission = await handle.requestPermission({ mode: "readwrite" });
@@ -683,12 +933,12 @@ const requestFolderPermission = async (handleKey, statusTarget) => {
     setStatus(
       statusTarget,
       permission === "granted"
-        ? "フォルダへのアクセスを再許可しました。"
-        : "アクセスが許可されませんでした。もう一度お試しください。"
+        ? t("options.folder.grantSucceeded")
+        : t("options.folder.grantDenied")
     );
   } catch (error) {
     if (error?.name !== "AbortError") {
-      setStatus(statusTarget, "アクセスの再許可に失敗しました。フォルダを選択し直してください。");
+      setStatus(statusTarget, t("options.folder.grantFailed"));
     }
   }
 };
@@ -707,15 +957,38 @@ const deleteHandle = async (presetId) => {
   }).finally(() => db.close());
 };
 
+/* -------------------------------- 描画処理 -------------------------------- */
+
+/**
+ * data-i18n では表せない、上限値などを差し込む文言を反映する。
+ */
+const renderParameterizedText = () => {
+  if (tagSetSectionHintEl) {
+    tagSetSectionHintEl.textContent = t("options.tagSet.hint", {
+      maxTags: MAX_TAGS_PER_SET,
+      maxSets: MAX_TAG_SETS,
+    });
+  }
+  if (tagSetSelectHintEl) {
+    tagSetSelectHintEl.textContent = t("options.tagSet.selectHint", { max: MAX_TAGS_PER_SET });
+  }
+};
+
 /** 現在stateをオプション画面UIへ反映する。 */
 const render = () => {
-  PRESET_IDS.forEach((id, index) => {
+  renderParameterizedText();
+
+  if (languageSelectEl) {
+    languageSelectEl.value = NtmI18n.getSetting();
+  }
+
+  PRESET_IDS.forEach((id) => {
     const config = presetConfigs[id];
     const title = document.querySelector(`[data-preset-id="${id}"] h3`);
     const nameInput = $(`${id}Name`);
     const folderLabel = $(`${id}Folder`);
     if (title) {
-      title.textContent = config.name || `プリセット${index + 1}`;
+      title.textContent = presetDisplayName(id, config);
     }
     if (nameInput && nameInput.value !== config.name) {
       nameInput.value = config.name;
@@ -723,7 +996,7 @@ const render = () => {
     applyFolderLabel(
       folderLabel,
       $(`${id}Grant`),
-      buildFolderLabel(config, id, "未設定（ダウンロード不可 — フォルダを選択してください）")
+      buildFolderLabel(config, id, t("options.preset.folderUnsetForDownload"))
     );
   });
 
@@ -738,7 +1011,7 @@ const render = () => {
 
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
-      removeBtn.textContent = "削除";
+      removeBtn.textContent = t("common.remove");
       removeBtn.addEventListener("click", async () => {
         presetTagCandidates = presetTagCandidates.filter((value) => value !== tag);
         const tagSetsChanged = removeTagFromTagSets(tag);
@@ -747,8 +1020,8 @@ const render = () => {
         setStatus(
           STATUS_TARGETS.tag,
           tagSetsChanged
-            ? `タグ「${tag}」を削除しました（タグセットからも除外しました）。`
-            : `タグ「${tag}」を削除しました。`
+            ? t("options.tag.removedWithSets", { tag })
+            : t("options.tag.removed", { tag })
         );
       });
 
@@ -783,16 +1056,16 @@ const render = () => {
       const editBtn = document.createElement("button");
       editBtn.type = "button";
       editBtn.className = "ghost";
-      editBtn.textContent = "編集";
+      editBtn.textContent = t("options.tagSet.edit");
       editBtn.addEventListener("click", () => {
         startTagSetEdit(tagSet);
-        setStatus(STATUS_TARGETS.tagSet, `セット「${tagSet.name}」を編集中です。`);
+        setStatus(STATUS_TARGETS.tagSet, t("options.tagSet.editing", { name: tagSet.name }));
       });
 
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
       removeBtn.className = "ghost";
-      removeBtn.textContent = "削除";
+      removeBtn.textContent = t("common.remove");
       removeBtn.addEventListener("click", async () => {
         presetTagSets = presetTagSets.filter((set) => set.id !== tagSet.id);
         if (editingTagSetId === tagSet.id) {
@@ -800,7 +1073,7 @@ const render = () => {
         }
         await persistConfigs();
         render();
-        setStatus(STATUS_TARGETS.tagSet, `セット「${tagSet.name}」を削除しました。`);
+        setStatus(STATUS_TARGETS.tagSet, t("options.tagSet.removed", { name: tagSet.name }));
       });
 
       card.append(body, editBtn, removeBtn);
@@ -829,12 +1102,12 @@ const render = () => {
 
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
-      removeBtn.textContent = "削除";
+      removeBtn.textContent = t("common.remove");
       removeBtn.addEventListener("click", async () => {
         presetObsidianLinkWords = presetObsidianLinkWords.filter((value) => value !== word);
         await persistConfigs();
         render();
-        setStatus(STATUS_TARGETS.obsidian, `ワード「${word}」を削除しました。`);
+        setStatus(STATUS_TARGETS.obsidian, t("options.obsidian.removed", { word }));
       });
 
       item.append(text, removeBtn);
@@ -865,8 +1138,17 @@ const persistConfigs = async () => {
 
 /** 保存済み設定を読み込み、stateとUIを初期化する。 */
 const loadConfigs = async () => {
+  await NtmI18n.init();
+  NtmI18n.applyDom(document);
+
   const stored = await chrome.storage.local.get(STORAGE_KEYS);
   presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
+  // 旧バージョンが保存した既定名は「未設定」とみなし、表示言語に追従させる。
+  PRESET_IDS.forEach((id, index) => {
+    if (presetConfigs[id].name === LEGACY_DEFAULT_PRESET_NAMES[index]) {
+      presetConfigs[id].name = "";
+    }
+  });
   presetTagCandidates = sanitizeTagCandidates(stored.presetTagCandidates ?? []);
   presetTagSets = sanitizeTagSets(stored.presetTagSets ?? []).map((set) => ({
     ...set,
@@ -887,16 +1169,29 @@ const loadConfigs = async () => {
 
 /** 各UI操作のイベントハンドラをバインドする。 */
 const bindEvents = () => {
-  PRESET_IDS.forEach((id, index) => {
+  languageSelectEl?.addEventListener("change", async () => {
+    await NtmI18n.setLanguage(languageSelectEl.value);
+    // 静的な文言とJSが組み立てる文言の両方を、その場で新しい言語に差し替える。
+    NtmI18n.applyDom(document);
+    render();
+    setStatus(
+      STATUS_TARGETS.language,
+      t("options.language.saved", {
+        label: t(`options.language.${NtmI18n.getSetting()}`),
+      })
+    );
+  });
+
+  PRESET_IDS.forEach((id) => {
     const nameInput = $(`${id}Name`);
     const pickBtn = $(`${id}Pick`);
     const clearBtn = $(`${id}Clear`);
 
     nameInput?.addEventListener("change", async () => {
-      presetConfigs[id].name = nameInput.value.trim() || `プリセット${index + 1}`;
+      presetConfigs[id].name = nameInput.value.trim();
       await persistConfigs();
       render();
-      setStatus(STATUS_TARGETS.tag, "プリセット名を保存しました。");
+      setStatus(STATUS_TARGETS.tag, t("options.preset.nameSaved"));
     });
 
     $(`${id}Grant`)?.addEventListener("click", async () => {
@@ -908,7 +1203,7 @@ const bindEvents = () => {
         const handle = await window.showDirectoryPicker();
         const permission = await handle.requestPermission({ mode: "readwrite" });
         if (permission !== "granted") {
-          setStatus(STATUS_TARGETS.tag, "フォルダの書き込み権限が許可されませんでした。");
+          setStatus(STATUS_TARGETS.tag, t("options.folder.writeDenied"));
           return;
         }
         await saveHandle(id, handle);
@@ -917,10 +1212,10 @@ const bindEvents = () => {
         permissionStates[id] = "granted";
         await persistConfigs();
         render();
-        setStatus(STATUS_TARGETS.tag, "保存先フォルダを設定しました。");
+        setStatus(STATUS_TARGETS.tag, t("options.preset.folderSaved"));
       } catch (error) {
         if (error?.name !== "AbortError") {
-          setStatus(STATUS_TARGETS.tag, "フォルダ設定に失敗しました。");
+          setStatus(STATUS_TARGETS.tag, t("options.folder.pickFailed"));
         }
       }
     });
@@ -933,9 +1228,9 @@ const bindEvents = () => {
         delete permissionStates[id];
         await persistConfigs();
         render();
-        setStatus(STATUS_TARGETS.tag, "保存先フォルダを解除しました。");
+        setStatus(STATUS_TARGETS.tag, t("options.preset.folderCleared"));
       } catch {
-        setStatus(STATUS_TARGETS.tag, "解除に失敗しました。");
+        setStatus(STATUS_TARGETS.tag, t("options.folder.clearFailed"));
       }
     });
   });
@@ -943,11 +1238,11 @@ const bindEvents = () => {
   addTagBtn?.addEventListener("click", async () => {
     const value = normalizeTagValue(newTagInputEl?.value ?? "");
     if (!value) {
-      setStatus(STATUS_TARGETS.tag, "タグ名を入力してください。");
+      setStatus(STATUS_TARGETS.tag, t("options.tag.nameRequired"));
       return;
     }
     if (presetTagCandidates.includes(value)) {
-      setStatus(STATUS_TARGETS.tag, "同じタグは既に登録されています。");
+      setStatus(STATUS_TARGETS.tag, t("options.tag.duplicate"));
       return;
     }
     presetTagCandidates = [...presetTagCandidates, value];
@@ -956,7 +1251,7 @@ const bindEvents = () => {
       newTagInputEl.value = "";
     }
     render();
-    setStatus(STATUS_TARGETS.tag, `タグ「${value}」を追加しました。`);
+    setStatus(STATUS_TARGETS.tag, t("options.tag.added", { tag: value }));
   });
 
   newTagInputEl?.addEventListener("keydown", (event) => {
@@ -979,17 +1274,17 @@ const bindEvents = () => {
 
   cancelTagSetEditBtn?.addEventListener("click", () => {
     resetTagSetForm();
-    setStatus(STATUS_TARGETS.tagSet, "編集を中止しました。");
+    setStatus(STATUS_TARGETS.tagSet, t("options.tagSet.editCancelled"));
   });
 
   addObsidianWordBtn?.addEventListener("click", async () => {
     const value = normalizeObsidianWordValue(newObsidianWordInputEl?.value ?? "");
     if (!value) {
-      setStatus(STATUS_TARGETS.obsidian, "ワードを入力してください。");
+      setStatus(STATUS_TARGETS.obsidian, t("options.obsidian.wordRequired"));
       return;
     }
     if (presetObsidianLinkWords.includes(value)) {
-      setStatus(STATUS_TARGETS.obsidian, "同じワードは既に登録されています。");
+      setStatus(STATUS_TARGETS.obsidian, t("options.obsidian.duplicate"));
       return;
     }
     presetObsidianLinkWords = [...presetObsidianLinkWords, value];
@@ -998,7 +1293,7 @@ const bindEvents = () => {
       newObsidianWordInputEl.value = "";
     }
     render();
-    setStatus(STATUS_TARGETS.obsidian, `ワード「${value}」を追加しました。`);
+    setStatus(STATUS_TARGETS.obsidian, t("options.obsidian.added", { word: value }));
   });
 
   newObsidianWordInputEl?.addEventListener("keydown", (event) => {
@@ -1013,7 +1308,7 @@ const bindEvents = () => {
     await persistConfigs();
     setStatus(
       STATUS_TARGETS.obsidian,
-      obsidianLinkifyEnabled ? "Obsidianリンク化を有効にしました。" : "Obsidianリンク化を無効にしました。"
+      obsidianLinkifyEnabled ? t("options.obsidian.enabled") : t("options.obsidian.disabled")
     );
   });
 
@@ -1022,12 +1317,15 @@ const bindEvents = () => {
       imageImportMode = getSelectedImageImportMode();
       renderImageFolderField();
       await persistConfigs();
-      const labels = {
-        url: "note URL参照",
-        download: "画像ダウンロード",
-        base64: "Base64埋込",
+      const labelKeys = {
+        url: "options.image.modeUrlShort",
+        download: "options.image.modeDownloadShort",
+        base64: "options.image.modeBase64Short",
       };
-      setStatus(STATUS_TARGETS.image, `画像取込方式を「${labels[imageImportMode]}」に設定しました。`);
+      setStatus(
+        STATUS_TARGETS.image,
+        t("options.image.modeSaved", { label: t(labelKeys[imageImportMode]) })
+      );
     });
   });
 
@@ -1036,7 +1334,7 @@ const bindEvents = () => {
       const handle = await window.showDirectoryPicker();
       const permission = await handle.requestPermission({ mode: "readwrite" });
       if (permission !== "granted") {
-        setStatus(STATUS_TARGETS.image, "フォルダの書き込み権限が許可されませんでした。");
+        setStatus(STATUS_TARGETS.image, t("options.folder.writeDenied"));
         return;
       }
       await saveHandle(IMAGE_FOLDER_HANDLE_KEY, handle);
@@ -1047,10 +1345,10 @@ const bindEvents = () => {
       permissionStates[IMAGE_FOLDER_HANDLE_KEY] = "granted";
       await persistConfigs();
       renderImageFolderField();
-      setStatus(STATUS_TARGETS.image, "画像保存先フォルダを設定しました。");
+      setStatus(STATUS_TARGETS.image, t("options.image.folderSaved"));
     } catch (error) {
       if (error?.name !== "AbortError") {
-        setStatus(STATUS_TARGETS.image, "フォルダ設定に失敗しました。");
+        setStatus(STATUS_TARGETS.image, t("options.folder.pickFailed"));
       }
     }
   });
@@ -1066,9 +1364,9 @@ const bindEvents = () => {
       delete permissionStates[IMAGE_FOLDER_HANDLE_KEY];
       await persistConfigs();
       renderImageFolderField();
-      setStatus(STATUS_TARGETS.image, "画像保存先フォルダを解除しました。");
+      setStatus(STATUS_TARGETS.image, t("options.image.folderCleared"));
     } catch {
-      setStatus(STATUS_TARGETS.image, "解除に失敗しました。");
+      setStatus(STATUS_TARGETS.image, t("options.folder.clearFailed"));
     }
   });
 
@@ -1088,12 +1386,27 @@ const bindEvents = () => {
   bulkAddCancelBtn?.addEventListener("click", () => {
     closeBulkModal();
   });
+
+  exportSettingsBtn?.addEventListener("click", () => {
+    exportSettings();
+  });
+
+  importSettingsBtn?.addEventListener("click", () => {
+    importSettingsInputEl?.click();
+  });
+
+  importSettingsInputEl?.addEventListener("change", async () => {
+    const file = importSettingsInputEl.files?.[0];
+    // 同じファイルを選び直しても change が発火するよう、毎回入力値を空へ戻す。
+    importSettingsInputEl.value = "";
+    if (!file) {
+      return;
+    }
+    await importSettings(file);
+  });
 };
 
 void loadConfigs().then(() => {
-  clearStatus(STATUS_TARGETS.tag);
-  clearStatus(STATUS_TARGETS.tagSet);
-  clearStatus(STATUS_TARGETS.obsidian);
-  clearStatus(STATUS_TARGETS.image);
+  Object.values(STATUS_TARGETS).forEach((target) => clearStatus(target));
   bindEvents();
 });

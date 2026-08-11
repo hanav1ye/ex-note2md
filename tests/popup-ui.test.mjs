@@ -10,16 +10,18 @@ import { createChromeStub, flush, readSource } from "./helpers/env.mjs";
 /**
  * popup を読み込む。
  * @param {object} [initialStore={}] - chrome.storage.local の初期値。
+ * @param {{uiLanguage?: string}} [options={}] - ブラウザ側の設定。
  * @returns {Promise<{win: import("jsdom").DOMWindow, doc: Document, store: object}>} テスト環境。
  */
-const loadPopup = async (initialStore = {}) => {
+const loadPopup = async (initialStore = {}, options = {}) => {
   const dom = new JSDOM(readSource("popup", "popup.html"), {
     runScripts: "outside-only",
     url: "https://example.org/",
   });
   const win = dom.window;
-  const { chrome, store } = createChromeStub(initialStore);
+  const { chrome, store } = createChromeStub(initialStore, options);
   win.chrome = chrome;
+  win.eval(readSource("lib", "i18n.js"));
   win.eval(readSource("lib", "noteToMarkdown.js"));
   win.eval(readSource("popup", "popup.js"));
   await flush(40);
@@ -186,6 +188,40 @@ test("変換元をURLにするとURL欄が出る", async () => {
   assert.equal(doc.getElementById("urlField").classList.contains("hidden"), false);
   assert.equal(doc.getElementById("tabField").classList.contains("hidden"), true);
   assert.equal(store.sourceMode, "url");
+});
+
+/* -------------------------------- 表示言語 -------------------------------- */
+
+test("保存済みの言語設定で popup を英語表示にする", async () => {
+  const { doc } = await loadPopup({ uiLanguage: "en", ...PRESET_STORE }, { uiLanguage: "ja" });
+
+  assert.equal(doc.getElementById("sourceModeLabel").textContent, "Source");
+  assert.equal(doc.getElementById("convertBtn").textContent, "Convert");
+  assert.equal(doc.getElementById("settingsBtn").getAttribute("title"), "Settings");
+  assert.equal(doc.documentElement.lang, "en");
+});
+
+test("英語表示では未設定プリセットも英語で並べる", async () => {
+  const { doc } = await loadPopup({}, { uiLanguage: "en" });
+  const select = doc.getElementById("downloadPreset");
+  assert.equal(select.querySelector('option[value="preset1"]').textContent, "Preset 1 (not set)");
+});
+
+test("英語表示ではタグ上限の警告も英語になる", async () => {
+  const { win, doc } = await loadPopup(
+    { presetTagCandidates: ["a", "b", "c", "d", "e", "f"] },
+    { uiLanguage: "en" }
+  );
+  const boxes = [...doc.querySelectorAll('#tagSelector input[type="checkbox"]')];
+  boxes.slice(0, 5).forEach((box) => {
+    box.checked = true;
+    change(win, box);
+  });
+  boxes[5].checked = true;
+  change(win, boxes[5]);
+  await flush();
+
+  assert.match(doc.getElementById("status").textContent, /up to 5 tags/);
 });
 
 test("設定ボタンでオプション画面を開く", async () => {

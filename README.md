@@ -20,6 +20,8 @@
 - タグ候補から最大 5 つ選択して frontmatter へ反映
 - よく使うタグの組み合わせを **タグセットプリセット** として登録し、popup から一括選択
 - Obsidian 向けリンク化（指定ワードを `[[単語]]` 化）
+- UI の **日本語 / 英語** 切り替え（既定はブラウザの表示言語に追従）
+- タグ・Obsidian 設定の **JSON エクスポート / インポート**
 
 ## Markdown 変換の対応範囲
 
@@ -118,6 +120,35 @@ popup のタグ欄に表示される `タグセット` を選ぶと、その組�
 ON 時、本文中の一致ワードを `[[単語]]` に変換します。  
 既存リンク・画像リンク・コードブロック・インラインコード・既存 `[[...]]` は保護されます。
 
+### 表示言語
+
+オプション画面の `表示言語` で **自動 / 日本語 / English** を選べます。既定は `自動` で、`chrome.i18n.getUILanguage()` が `ja` で始まるときは日本語、それ以外は英語になります。
+
+設定は popup・オプション画面・note ページ上のトーストとパネル・Service Worker のエラー文言すべてに適用されます。オプション画面での切り替えはその場で反映され、既に開いている note タブにも次に選択モードへ入ったタイミングで反映されます。
+
+Markdown の出力内容（frontmatter のキー名など）は表示言語の影響を受けません。
+
+保存先プリセットの表示名を空にすると、その言語の既定名（`プリセット1` / `Preset 1`）が使われます。
+
+### 設定のインポート / エクスポート
+
+オプション画面の `設定のインポート / エクスポート` で、以下を JSON ファイルとしてやり取りできます。
+
+| 対象 | 備考 |
+|------|------|
+| タグ候補 | |
+| タグセットプリセット | ID は取り込み側で振り直す |
+| Obsidian リンク化ワード | |
+| Obsidian リンク化 ON/OFF | |
+
+- **エクスポート**: `note2md-settings-YYYYMMDD.json` をダウンロードします
+- **インポート**: 既存の設定へ **追加（マージ）** します。同じタグ・同じ名前のタグセット・同じワードはスキップされ、既存の登録が消えることはありません
+- タグセットが参照するタグは、タグ候補にも自動で追加されます
+- リンク化 ON/OFF は「ファイル側が ON なら ON にする」だけで、ON を OFF へ戻すことはありません
+- タグセットが上限（10 件）を超える分は取り込まれず、その旨を表示します
+
+保存先フォルダはブラウザの権限に紐づくため対象外です。取り込んだ端末で選び直してください。
+
 ## 保存データ
 
 ### `chrome.storage.local`
@@ -137,6 +168,7 @@ ON 時、本文中の一致ワードを `[[単語]]` に変換します。
 | `selectedTagSetId` | popup で選択中のタグセットID |
 | `presetObsidianLinkWords` | Obsidian リンク化ワード一覧 |
 | `obsidianLinkify` | Obsidianリンク化 ON/OFF |
+| `uiLanguage` | 表示言語設定（`auto` / `ja` / `en`） |
 
 ### IndexedDB（`noteToMarkdownPresets`）
 
@@ -158,10 +190,12 @@ File System Access API で選択した保存先フォルダのハンドルを保
 | パス | 役割 |
 |------|------|
 | `lib/noteToMarkdown.js` | note DOM → Markdown 変換 |
+| `lib/i18n.js` | UI 文言カタログ（日本語 / 英語）と表示言語の解決 |
 | `content/content.js` | 記事ページでの変換 API、リンク選択・一括処理 |
 | `background.js` | 保存処理・ファイル存在チェック |
 | `popup/` | 変換 UI |
-| `options/` | 保存先プリセット / タグ候補 / タグセットプリセット / Obsidian 設定 |
+| `options/` | 表示言語 / 保存先プリセット / タグ候補 / タグセットプリセット / Obsidian 設定 / 設定の入出力 |
+| `_locales/` | manifest の拡張機能名・説明のローカライズ |
 | `manifest.json` | Manifest V3 定義 |
 | `scripts/build-dist.mjs` | 配布用 `dist/` の生成（検証 + minify） |
 | `scripts/update-fixtures.mjs` | テスト用フィクスチャの取得（手動実行） |
@@ -193,10 +227,11 @@ npm install
 | `tests/conversion-golden.test.mjs` | 実記事フィクスチャに対する変換結果の回帰 |
 | `tests/conversion-parity.test.mjs` | タブ変換とURL変換の出力一致 |
 | `tests/conversion-unit.test.mjs` | frontmatter・記法・Obsidianリンク化などの個別仕様 |
+| `tests/i18n.test.mjs` | 表示言語の解決・フォールバック・DOM への適用 |
 | `tests/background.test.mjs` | 保存処理、URL/ファイル名の検証、メッセージ検証 |
 | `tests/content-ui.test.mjs` | 選択モード、一括処理の中止、Shadow DOM 隔離 |
-| `tests/options-ui.test.mjs` | タグ候補・タグセット・フォルダ権限の再許可 |
-| `tests/popup-ui.test.mjs` | タグ選択・タグセット適用・保存先プリセット表示 |
+| `tests/options-ui.test.mjs` | タグ候補・タグセット・フォルダ権限の再許可・設定の入出力・表示言語 |
+| `tests/popup-ui.test.mjs` | タグ選択・タグセット適用・保存先プリセット表示・表示言語 |
 
 実ブラウザでしか確認できない項目は [docs/manual-qa.md](docs/manual-qa.md) にまとめています。
 

@@ -37,6 +37,7 @@ if (!existsSync(`${SOURCE_DIR}/popup/popup.html`)) {
 
 /** 掲載イメージ用のサンプル設定。実際の保存データと同じ形式にする。 */
 const SAMPLE_STORAGE = {
+  uiLanguage: "ja",
   sourceMode: "tab",
   outputMode: "download",
   articleUrl: "",
@@ -73,6 +74,7 @@ const buildStub = (overrides = {}) => `
     requestPermission: async () => "granted",
   };
   window.chrome = {
+    i18n: { getUILanguage: () => "ja" },
     runtime: {
       id: "screenshot",
       openOptionsPage: () => {},
@@ -194,11 +196,13 @@ const capture = (htmlPath, outputName) => {
  */
 const onlySections = (keepTitleIds) => {
   const all = [
+    "languageSectionTitle",
     "presetSectionTitle",
     "imageImportSectionTitle",
     "tagSectionTitle",
     "tagSetSectionTitle",
     "obsidianSectionTitle",
+    "transferSectionTitle",
   ];
   const hidden = all
     .filter((id) => !keepTitleIds.includes(id))

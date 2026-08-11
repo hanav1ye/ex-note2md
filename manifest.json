@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "note to Markdown",
+  "name": "__MSG_appName__",
   "version": "1.0.0",
-  "description": "【非公式】note.com の記事を Markdown に変換します。画像は URL 参照・ローカル保存・Base64 埋込から選べます。",
+  "description": "__MSG_appDescription__",
+  "default_locale": "ja",
   "minimum_chrome_version": "109",
   "permissions": ["activeTab", "clipboardWrite", "storage"],
   "host_permissions": ["https://note.com/*", "https://assets.st-note.com/*"],
@@ -10,7 +11,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "note → Markdown",
+    "default_title": "__MSG_actionTitle__",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -27,7 +28,7 @@
   "content_scripts": [
     {
       "matches": ["https://note.com/*"],
-      "js": ["lib/noteToMarkdown.js", "content/content.js"],
+      "js": ["lib/i18n.js", "lib/noteToMarkdown.js", "content/content.js"],
       "run_at": "document_idle"
     }
   ]

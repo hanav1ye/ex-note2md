@@ -1,18 +1,19 @@
 // Service Worker: プリセット保存先フォルダへの .md 書き込みと重複チェック
+importScripts("lib/i18n.js");
+
+const t = (key, params) => NtmI18n.t(key, params);
+
 const PRESET_IDS = ["preset1", "preset2", "preset3"];
 const DEFAULT_PRESET_CONFIGS = {
-  preset1: { name: "プリセット1", folderLabel: "", hasFolder: false },
-  preset2: { name: "プリセット2", folderLabel: "", hasFolder: false },
-  preset3: { name: "プリセット3", folderLabel: "", hasFolder: false },
+  preset1: { name: "", folderLabel: "", hasFolder: false },
+  preset2: { name: "", folderLabel: "", hasFolder: false },
+  preset3: { name: "", folderLabel: "", hasFolder: false },
 };
+// 1.0.0 までは既定の表示名を日本語のまま保存していた。表示だけロケールに追従させる。
+const LEGACY_DEFAULT_PRESET_NAMES = ["プリセット1", "プリセット2", "プリセット3"];
 const DB_NAME = "noteToMarkdownPresets";
 const DB_STORE = "directoryHandles";
 const IMAGE_FOLDER_HANDLE_KEY = "imageFolder";
-
-const PRESET_FOLDER_REQUIRED_ERROR =
-  "ダウンロードには保存先プリセットのフォルダ設定が必要です。設定（歯車）から「保存先プリセット設定」でフォルダを選択してください。";
-const IMAGE_FOLDER_REQUIRED_ERROR =
-  "画像ダウンロードには画像保存先フォルダの設定が必要です。オプション画面の「画像取込方式」でフォルダを選択してください。";
 
 const DEFAULT_IMAGE_FOLDER_CONFIG = { folderLabel: "", hasFolder: false };
 
@@ -21,12 +22,19 @@ const ALLOWED_IMAGE_HOSTS = new Set(["assets.st-note.com", "note.com"]);
 
 /**
  * UI表示用のプリセット名を返す。
+ * 未設定または旧既定名のままなら、現在の表示言語の既定名にする。
  * @param {string} presetId - 対象プリセットID。
  * @param {{name?: string}|undefined} config - 保存済みプリセット設定。
  * @returns {string} 表示名。
  */
-const presetDisplayName = (presetId, config) =>
-  config?.name?.trim() || `プリセット${PRESET_IDS.indexOf(presetId) + 1}`;
+const presetDisplayName = (presetId, config) => {
+  const index = PRESET_IDS.indexOf(presetId) + 1;
+  const name = String(config?.name ?? "").trim();
+  if (!name || name === LEGACY_DEFAULT_PRESET_NAMES[index - 1]) {
+    return t("preset.defaultName", { index });
+  }
+  return name;
+};
 
 /**
  * ファイル名／フォルダ名として安全な文字列へ正規化する。
@@ -89,8 +97,8 @@ const isAllowedImageUrl = (url) => {
  * @param {string} fallbackName - 設定が空のときに使う表示名。
  * @returns {{name: string, folderLabel: string, hasFolder: boolean}} 正規化後設定。
  */
-const sanitizePresetConfig = (config, fallbackName) => ({
-  name: String(config?.name ?? fallbackName).trim() || fallbackName,
+const sanitizePresetConfig = (config) => ({
+  name: String(config?.name ?? "").trim(),
   folderLabel: String(config?.folderLabel ?? "").trim(),
   hasFolder: Boolean(config?.hasFolder),
 });
@@ -101,9 +109,9 @@ const sanitizePresetConfig = (config, fallbackName) => ({
  * @returns {{preset1: object, preset2: object, preset3: object}} 正規化後設定。
  */
 const sanitizePresetConfigs = (configs) => ({
-  preset1: sanitizePresetConfig(configs?.preset1, "プリセット1"),
-  preset2: sanitizePresetConfig(configs?.preset2, "プリセット2"),
-  preset3: sanitizePresetConfig(configs?.preset3, "プリセット3"),
+  preset1: sanitizePresetConfig(configs?.preset1),
+  preset2: sanitizePresetConfig(configs?.preset2),
+  preset3: sanitizePresetConfig(configs?.preset3),
 });
 
 /**
@@ -160,17 +168,17 @@ const getImageFolderHandle = async () => {
   );
 
   if (!imageFolderConfig.hasFolder) {
-    throw new Error(IMAGE_FOLDER_REQUIRED_ERROR);
+    throw new Error(t("error.imageFolderRequired"));
   }
 
   const handle = await getPresetHandle(IMAGE_FOLDER_HANDLE_KEY);
   if (!handle) {
-    throw new Error("画像保存先フォルダが見つかりません。オプション画面からフォルダを再選択してください。");
+    throw new Error(t("background.imageFolderMissing"));
   }
 
   const permission = await handle.queryPermission({ mode: "readwrite" });
   if (permission !== "granted") {
-    throw new Error("画像保存先フォルダへのアクセス権限が失効しています。オプション画面の「アクセスを再許可」ボタンから許可し直してください。");
+    throw new Error(t("background.imageFolderPermissionLost"));
   }
 
   return handle;
@@ -188,24 +196,25 @@ const getPresetDirectoryHandle = async (downloadPreset) => {
   const presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
   const selectedConfig = presetConfigs[selectedPreset] ?? DEFAULT_PRESET_CONFIGS[selectedPreset];
 
+  const displayName = presetDisplayName(selectedPreset, selectedConfig);
+
   if (!selectedConfig.hasFolder) {
     throw new Error(
-      `「${presetDisplayName(selectedPreset, selectedConfig)}」に保存先フォルダが設定されていません。${PRESET_FOLDER_REQUIRED_ERROR}`
+      t("background.presetFolderUnset", {
+        name: displayName,
+        detail: t("error.presetFolderRequired"),
+      })
     );
   }
 
   const handle = await getPresetHandle(selectedPreset);
   if (!handle) {
-    throw new Error(
-      `「${presetDisplayName(selectedPreset, selectedConfig)}」の保存先フォルダが見つかりません。設定画面からフォルダを再選択してください。`
-    );
+    throw new Error(t("background.presetFolderMissing", { name: displayName }));
   }
 
   const permission = await handle.queryPermission({ mode: "readwrite" });
   if (permission !== "granted") {
-    throw new Error(
-      `「${presetDisplayName(selectedPreset, selectedConfig)}」の保存先フォルダへのアクセス権限が失効しています。設定画面の「アクセスを再許可」ボタンから許可し直してください。`
-    );
+    throw new Error(t("background.presetFolderPermissionLost", { name: displayName }));
   }
 
   return handle;
@@ -254,11 +263,11 @@ const downloadMarkdownByPreset = async ({ markdown, articleUrl, downloadPreset }
  */
 const fetchImageBytes = async (url) => {
   if (!isAllowedImageUrl(url)) {
-    throw new Error("許可されていない画像URLです。");
+    throw new Error(t("background.imageUrlNotAllowed"));
   }
   const response = await fetch(String(url), { credentials: "omit" });
   if (!response.ok) {
-    throw new Error(`画像の取得に失敗しました（HTTP ${response.status}）。`);
+    throw new Error(t("background.imageFetchFailedHttp", { status: response.status }));
   }
   return new Uint8Array(await response.arrayBuffer());
 };
@@ -290,17 +299,17 @@ const saveImagesForArticle = async ({ images, noteId }) => {
       await writable.close();
       filenames.push(`${noteFolderName}/${filename}`);
     } catch (error) {
-      const reason = error instanceof Error ? error.message : "不明なエラー";
+      const reason = error instanceof Error ? error.message : t("common.unknownError");
       failures.push(`${filename}: ${reason}`);
     }
   }
 
   if (filenames.length === 0 && failures.length > 0) {
-    throw new Error(`画像の保存に失敗しました。\n${failures.join("\n")}`);
+    throw new Error(t("background.imageSaveFailedDetail", { details: failures.join("\n") }));
   }
 
   if (failures.length > 0) {
-    console.warn("[note→Markdown] 一部の画像保存に失敗:", failures);
+    console.warn(`[note→Markdown] ${t("background.imageSavePartialFailure")}`, failures);
   }
 
   return { savedCount: filenames.length, filenames };
@@ -317,6 +326,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "downloadMarkdownByPreset") {
     void (async () => {
+      // Service Worker は起動しっぱなしになるため、都度読み直して表示言語の変更に追従する。
+      await NtmI18n.reload();
       try {
         const result = await downloadMarkdownByPreset({
           markdown: message.markdown ?? "",
@@ -325,7 +336,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         sendResponse({ ok: true, ...result });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "ダウンロードに失敗しました。";
+        const errorMessage = error instanceof Error ? error.message : t("error.downloadFailed");
         sendResponse({ ok: false, error: errorMessage });
       }
     })();
@@ -334,6 +345,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "saveImagesForArticle") {
     void (async () => {
+      await NtmI18n.reload();
       try {
         const result = await saveImagesForArticle({
           images: message.images ?? [],
@@ -341,7 +353,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         sendResponse({ ok: true, ...result });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "画像の保存に失敗しました。";
+        const errorMessage = error instanceof Error ? error.message : t("error.saveImagesFailed");
         sendResponse({ ok: false, error: errorMessage });
       }
     })();
