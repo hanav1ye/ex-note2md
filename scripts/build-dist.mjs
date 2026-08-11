@@ -39,8 +39,13 @@ if (manifest.version !== pkg.version) {
 }
 
 /** ストア提出時に弾かれやすい形式をあらかじめ検査する。 */
-if (!/^\d+(\.\d+){0,3}$/.test(manifest.version)) {
-  fail(`manifest.json の version 形式が不正です: ${manifest.version}`);
+if (manifest.manifest_version !== 3) {
+  fail(
+    `manifest.json の manifest_version は整数の 3 である必要があります: ${JSON.stringify(manifest.manifest_version)}`
+  );
+}
+if (typeof manifest.version !== "string" || !/^\d+(\.\d+){0,3}$/.test(manifest.version)) {
+  fail(`manifest.json の version 形式が不正です: ${JSON.stringify(manifest.version)}`);
 }
 
 /**
@@ -145,6 +150,19 @@ const emptyOrMissing = expectedOutputs.filter((file) => {
 });
 if (emptyOrMissing.length > 0) {
   fail(`dist の出力が不足しています: ${emptyOrMissing.join(", ")}`);
+}
+
+/**
+ * dist は生成物なので手で編集しないこと。
+ * それでも壊れた状態のまま提出しないよう、出力側の JSON も読み直して検査する。
+ */
+try {
+  const distManifest = JSON.parse(readFileSync(`${DIST_DIR}/manifest.json`, "utf8"));
+  if (distManifest.manifest_version !== 3 || distManifest.version !== manifest.version) {
+    fail("dist/manifest.json の内容が manifest.json と一致していません。");
+  }
+} catch (error) {
+  fail(`dist/manifest.json を JSON として読めません: ${error.message}`);
 }
 
 /** minify 後の成果物そのものに対しても同じテストを流す。 */
