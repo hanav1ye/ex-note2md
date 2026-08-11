@@ -144,11 +144,23 @@ externally. All processing happens locally on the user's device.
 
 プライバシーポリシーURL: リポジトリの `PRIVACY.md` を公開URL（GitHub Pages など）で提供する
 
-## スクリーンショット
+## 掲載画像
 
-`npm run make:screenshots` で `docs/screenshots/` に 640x400 で生成する（ストアの上限は5枚）。
+ストアの要件はいずれも **JPEG または 24 ビット PNG（アルファなし）**。
+生成スクリプトは出力後に PNG の IHDR を読み直し、サイズと色タイプが要件どおりか検査する
+（アルファ付きで書き出されるとアップロードが弾かれるため）。
+
+| 用途 | サイズ | 生成コマンド | ファイル |
+|------|--------|-------------|----------|
+| スクリーンショット | 1280x800（最大5枚） | `npm run make:screenshots` | `01`〜`05` |
+| プロモーションタイル（小） | 440x280 | `npm run make:store-images` | `promo-tile-small.png` |
+| マーキープロモーションタイル | 1400x560 | `npm run make:store-images` | `promo-tile-marquee.png` |
+
+### スクリーンショット
+
 `dist/` の実UIに chrome API のスタブでサンプルデータを流し込んで撮影しているため、
-UI を変更したら再生成すること。
+UI を変更したら再生成すること（事前に `npm run build:dist` が必要）。
+レイアウトは 640x400 のまま描画倍率だけ 2 倍にして撮っており、構図を変えずに解像度を上げている。
 
 | ファイル | 内容 | 添える説明文の案 |
 |----------|------|-----------------|
@@ -161,11 +173,24 @@ UI を変更したら再生成すること。
 ページ内の複数選択パネル（note.com 上に表示されるUI）は実際に拡張機能を読み込んだ状態でしか
 撮影できないため、必要であれば手動QAの際に取得する。
 
+### プロモーションタイル
+
+`icons/icon128.png` から採取した配色（紺 `#1e2340` / ピンク `#f0bccb` / 水色 `#c3e2ec`）を使い、
+アイコンとキャッチコピーだけを置いたブランド訴求型。タイルはロケール別に登録できないため表記は英語。
+
+| 項目 | 内容 |
+|------|------|
+| 表示名 | note to Markdown |
+| キャッチコピー | Turn note articles into Markdown. |
+
+文言を変えるときは `scripts/make-store-images.mjs` の `NAME` / `TAGLINE` を編集して再生成する。
+
 ## 提出前チェック
 
 - [ ] `npm run build:dist` が成功する（lint / test も同時に実行される）
 - [ ] `dist/` を zip 化して提出物とする（リポジトリのルートではない）
 - [ ] `docs/manual-qa.md` の手動チェックを実施
-- [ ] スクリーンショット（`npm run make:screenshots` で 640x400 を5枚生成）
+- [ ] スクリーンショット（`npm run make:screenshots` で 1280x800 を5枚生成）
+- [ ] プロモーションタイル（`npm run make:store-images` で 440x280 と 1400x560 を生成）
 - [ ] プライバシーポリシーを公開URLで参照できる状態にする
 - [ ] `manifest.json` と `package.json` のバージョンを更新（ビルドで不一致を検出）

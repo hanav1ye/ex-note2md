@@ -198,6 +198,7 @@ File System Access API で選択した保存先フォルダのハンドルを保
 | `_locales/` | manifest の拡張機能名・説明のローカライズ |
 | `manifest.json` | Manifest V3 定義 |
 | `scripts/build-dist.mjs` | 配布用 `dist/` の生成（検証 + minify） |
+| `scripts/make-store-images.mjs` | ストア掲載用プロモーションタイルの生成 |
 | `scripts/update-fixtures.mjs` | テスト用フィクスチャの取得（手動実行） |
 | `scripts/update-golden.mjs` | 期待Markdownの再生成（手動実行） |
 | `tests/` | 自動テスト |
@@ -218,7 +219,8 @@ npm install
 | `npm run build:dist` | 配布用 `dist/` を生成（lint / test / バージョン整合を検証し、生成後は `dist` に対しても再テスト） |
 | `npm run update:fixtures` | ゴールデンテスト用の記事フィクスチャを note.com から再取得 |
 | `npm run update:golden` | 期待Markdownを再生成（変換仕様を意図的に変えたときのみ） |
-| `npm run make:screenshots` | ストア掲載用スクリーンショット（640x400）を `docs/screenshots/` へ生成 |
+| `npm run make:screenshots` | ストア掲載用スクリーンショット（1280x800）を `docs/screenshots/` へ生成 |
+| `npm run make:store-images` | ストア掲載用プロモーションタイル（440x280 / 1400x560）を `docs/screenshots/` へ生成 |
 
 テストの構成:
 

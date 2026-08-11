@@ -12,7 +12,8 @@
     "update-like-count": "node scripts/update-like-count.mjs",
     "update:fixtures": "node scripts/update-fixtures.mjs",
     "update:golden": "node scripts/update-golden.mjs",
-    "make:screenshots": "node scripts/make-screenshots.mjs"
+    "make:screenshots": "node scripts/make-screenshots.mjs",
+    "make:store-images": "node scripts/make-store-images.mjs"
   },
   "devDependencies": {
     "clean-css-cli": "^5.6.3",

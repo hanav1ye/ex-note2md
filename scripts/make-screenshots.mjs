@@ -1,8 +1,12 @@
 /**
- * ストア掲載用スクリーンショット（640x400）を生成する。
+ * ストア掲載用スクリーンショット（1280x800）を生成する。
  *
  * dist/ の実UIをそのまま使い、chrome API だけをスタブして
  * サンプルデータを流し込んだ状態をヘッドレス Chrome で撮影する。
+ *
+ * レイアウトは 640x400 のまま描画倍率だけ 2 倍にして撮る。
+ * ストアが許すサイズは 1280x800 か 640x400 の2種類だけで縦横比が同じなので、
+ * こうすると構図を変えずに解像度だけ上げられる。
  *
  * 実行: npm run make:screenshots（事前に npm run build:dist が必要）
  */
@@ -11,8 +15,11 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+/** レイアウト上の寸法（CSSピクセル）。 */
 const WIDTH = 640;
 const HEIGHT = 400;
+/** 描画倍率。出力は WIDTH*SCALE x HEIGHT*SCALE になる。 */
+const SCALE = 2;
 const OUT_DIR = "docs/screenshots";
 const SOURCE_DIR = "dist";
 
@@ -165,7 +172,22 @@ const buildShotPage = ({ name, page, extraStyle = "", script = "", storage = {} 
 };
 
 /**
- * ヘッドレス Chrome で1枚撮影する。
+ * PNG の IHDR を読み、サイズと色タイプを返す。
+ * @param {string} path - PNG のパス。
+ * @returns {{width: number, height: number, bitDepth: number, colorType: number}} 画像情報。
+ */
+const readPngHeader = (path) => {
+  const buffer = readFileSync(path);
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+    bitDepth: buffer[24],
+    colorType: buffer[25],
+  };
+};
+
+/**
+ * ヘッドレス Chrome で1枚撮影し、ストアの要件を満たしているか検査する。
  * @param {string} htmlPath - 撮影対象HTMLのパス。
  * @param {string} outputName - 出力ファイル名。
  */
@@ -177,7 +199,7 @@ const capture = (htmlPath, outputName) => {
       "--headless=new",
       "--disable-gpu",
       "--hide-scrollbars",
-      "--force-device-scale-factor=1",
+      `--force-device-scale-factor=${SCALE}`,
       `--window-size=${WIDTH},${HEIGHT}`,
       "--virtual-time-budget=3000",
       `--screenshot=${output}`,
@@ -185,7 +207,22 @@ const capture = (htmlPath, outputName) => {
     ],
     { stdio: ["ignore", "ignore", "pipe"] }
   );
-  console.log(`captured: ${OUT_DIR}/${outputName}`);
+
+  const header = readPngHeader(output);
+  if (header.width !== WIDTH * SCALE || header.height !== HEIGHT * SCALE) {
+    console.error(
+      `${outputName}: サイズが ${header.width}x${header.height} です（期待: ${WIDTH * SCALE}x${HEIGHT * SCALE}）。`
+    );
+    process.exit(1);
+  }
+  // 色タイプ 2 = トゥルーカラー（アルファなし）。6 だとアルファ付きでストアに弾かれる。
+  if (header.colorType !== 2 || header.bitDepth !== 8) {
+    console.error(
+      `${outputName}: 24 ビット（アルファなし）ではありません（bitDepth=${header.bitDepth}, colorType=${header.colorType}）。`
+    );
+    process.exit(1);
+  }
+  console.log(`captured: ${OUT_DIR}/${outputName} (${header.width}x${header.height}, 24bit)`);
 };
 
 /**
@@ -251,7 +288,9 @@ const SHOTS = [
     // 差別化要素であるタグセットプリセットを掲載する
     name: "04-options-tagsets",
     page: "options",
-    extraStyle: onlySections(["tagSetSectionTitle"]),
+    // 登録済みセット2件が下で切れないよう、わずかに縮めて収める
+    extraStyle: `${onlySections(["tagSetSectionTitle"])}
+      .container { transform: scale(0.9); transform-origin: top center; }`,
   },
   {
     name: "05-options-obsidian",
@@ -267,4 +306,4 @@ for (const shot of SHOTS) {
 }
 
 rmSync(workDir, { recursive: true, force: true });
-console.log(`\n${SHOTS.length} 枚を ${WIDTH}x${HEIGHT} で ${OUT_DIR}/ に出力しました。`);
+console.log(`\n${SHOTS.length} 枚を ${WIDTH * SCALE}x${HEIGHT * SCALE} で ${OUT_DIR}/ に出力しました。`);
