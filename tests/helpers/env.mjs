@@ -159,6 +159,11 @@ export const createChromeStub = (initialStore = {}, { uiLanguage = "ja" } = {}) 
         set: async (values) => {
           Object.assign(store, structuredClone(values));
         },
+        remove: async (keys) => {
+          (Array.isArray(keys) ? keys : [keys]).forEach((key) => {
+            delete store[key];
+          });
+        },
       },
     },
     tabs: {

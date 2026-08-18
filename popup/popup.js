@@ -11,6 +11,7 @@ const $ = (id) => document.getElementById(id);
 const statusEl = $("status");
 const convertBtn = $("convertBtn");
 const settingsBtn = $("settingsBtn");
+const likeCountBtn = $("likeCountBtn");
 const urlFieldEl = $("urlField");
 const tabFieldEl = $("tabField");
 const tabArticleTitleEl = $("tabArticleTitle");
@@ -947,6 +948,24 @@ downloadPresetEl.addEventListener("change", () => {
 
 settingsBtn.addEventListener("click", () => {
   void chrome.runtime.openOptionsPage();
+});
+
+/*
+ * スキ数の更新はオプション画面で実行する。
+ * popup はフォーカスを失うと閉じて実行コンテキストごと消えるため、
+ * 数分かかる処理やフォルダ権限の再取得を popup 内で完結させられない。
+ * ここでは実行したい意思だけを storage に置き、オプション画面側で受け取る。
+ */
+likeCountBtn?.addEventListener("click", () => {
+  void (async () => {
+    try {
+      await chrome.storage.local.set({ pendingLikeCountRun: true });
+    } catch {
+      // 受け渡しに失敗してもオプション画面は開く
+    }
+    void chrome.runtime.openOptionsPage();
+    window.close();
+  })();
 });
 
 pickUrlBtn.addEventListener("click", () => {

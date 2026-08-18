@@ -66,6 +66,12 @@ body {
   line-height: 1.4;
 }
 
+.popup-header-actions {
+  flex: none;
+  display: flex;
+  gap: 6px;
+}
+
 .settings-button {
   flex: none;
   display: inline-flex;

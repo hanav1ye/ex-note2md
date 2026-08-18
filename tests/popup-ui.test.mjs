@@ -234,3 +234,28 @@ test("設定ボタンでオプション画面を開く", async () => {
   await flush();
   assert.equal(opened, true);
 });
+
+/* ---------------------------- スキ数更新への導線 ---------------------------- */
+
+test("スキ数更新ボタンはオプション画面へ実行を引き継ぐ", async () => {
+  const { win, doc, store } = await loadPopup();
+  let opened = false;
+  win.chrome.runtime.openOptionsPage = () => {
+    opened = true;
+  };
+  win.close = () => {};
+
+  click(win, doc.getElementById("likeCountBtn"));
+  await flush(40);
+
+  assert.equal(store.pendingLikeCountRun, true, "実行の意思が引き継がれていません");
+  assert.equal(opened, true, "オプション画面が開かれていません");
+});
+
+test("スキ数更新ボタンに用途が分かるツールチップを付ける", async () => {
+  const { doc } = await loadPopup();
+  assert.match(doc.getElementById("likeCountBtn").getAttribute("title"), /スキ数を更新/);
+
+  const { doc: en } = await loadPopup({ uiLanguage: "en" });
+  assert.match(en.getElementById("likeCountBtn").getAttribute("title"), /Refresh like counts/);
+});

@@ -76,6 +76,15 @@ const loadOptions = async ({ store: initialStore = {}, handles = {}, uiLanguage 
     downloads.push({ download: this.download, blob: blobs.get(this.getAttribute("href")) });
   };
 
+  // jsdom には <dialog> のモーダル表示が無い。popup からの自動起動は読み込み直後に
+  // ダイアログを開くため、インスタンス単位ではなくプロトタイプごと差し替えておく。
+  win.HTMLDialogElement.prototype.showModal = function showModalStub() {
+    this.setAttribute("open", "");
+  };
+  win.HTMLDialogElement.prototype.close = function closeStub() {
+    this.removeAttribute("open");
+  };
+
   // note の API 呼び出しを記録しつつ、既定では固定のスキ数を返す。
   const apiCalls = [];
   win.fetch = async (url) => {
@@ -640,12 +649,7 @@ const articleMarkdown = (noteId, likeCount) =>
  * @param {Document} doc - 対象ドキュメント。
  * @returns {HTMLElement} ダイアログ要素。
  */
-const stubConfirmModal = (doc) => {
-  const modal = doc.getElementById("likeCountConfirmModal");
-  modal.showModal = () => {};
-  modal.close = () => {};
-  return modal;
-};
+const stubConfirmModal = (doc) => doc.getElementById("likeCountConfirmModal");
 
 /**
  * 確認ダイアログの「更新する」を押す。
@@ -804,4 +808,51 @@ test("更新できる .md が無ければその旨を伝える", async () => {
   await flush(80);
 
   assert.match(doc.getElementById("likeCountStatus").textContent, /見つかりませんでした/);
+});
+
+test("popup から渡された実行指示を受け取って確認まで進む", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc, store } = await loadOptions({
+    store: { ...LIKE_COUNT_STORE, pendingLikeCountRun: true },
+    handles: { preset1: vault },
+  });
+  stubConfirmModal(doc);
+  await flush(120);
+
+  assert.equal(store.pendingLikeCountRun, undefined, "指示が消費されていません");
+  assert.match(doc.getElementById("likeCountConfirmBody").textContent, /1件/);
+
+  acceptConfirm(win, doc);
+  await flush(600);
+  assert.match(file.state.contents, /like_count: 55/);
+});
+
+test("自動起動では権限ダイアログを出さず案内に留める", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file }, "prompt");
+  const { doc } = await loadOptions({
+    store: { ...LIKE_COUNT_STORE, pendingLikeCountRun: true },
+    handles: { preset1: vault },
+  });
+  await flush(120);
+
+  assert.equal(
+    vault.state.requestCount,
+    0,
+    "ユーザー操作が無い場面で権限ダイアログを開こうとしています"
+  );
+  assert.equal(file.state.writes, 0);
+  assert.match(doc.getElementById("likeCountStatus").textContent, /アクセス権限がありません/);
+});
+
+test("指示が無ければ勝手に走らない", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  stubConfirmModal(doc);
+  await flush(120);
+
+  assert.equal(file.state.writes, 0);
+  assert.equal(doc.getElementById("likeCountStatus").textContent, "");
 });

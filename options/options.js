@@ -17,6 +17,8 @@ const STORAGE_KEYS = [
 const MAX_TAGS_PER_SET = 5;
 const MAX_TAG_SETS = 10;
 const IMAGE_FOLDER_HANDLE_KEY = "imageFolder";
+/** popup から「スキ数を更新」が押されたことを受け取るための一時キー。 */
+const PENDING_LIKE_COUNT_RUN_KEY = "pendingLikeCountRun";
 const DB_NAME = "noteToMarkdownPresets";
 const DB_STORE = "directoryHandles";
 
@@ -63,6 +65,7 @@ const bulkAddModalTitleEl = $("bulkAddModalTitle");
 const bulkAddModalHintEl = $("bulkAddModalHint");
 const bulkAddTextareaEl = $("bulkAddTextarea");
 const bulkAddCancelBtn = $("bulkAddCancelBtn");
+const likeCountSectionEl = document.querySelector('[aria-labelledby="likeCountSectionTitle"]');
 const likeCountPresetEl = $("likeCountPreset");
 const likeCountPresetHintEl = $("likeCountPresetHint");
 const likeCountRunBtn = $("likeCountRunBtn");
@@ -1132,8 +1135,12 @@ const applyLikeCountUpdates = async (targets, skippedCount) => {
   );
 };
 
-/** スキ数更新の一連の流れ（権限確認 → 走査 → 確認 → 実行）を行う。 */
-const runLikeCountUpdate = async () => {
+/**
+ * スキ数更新の一連の流れ（権限確認 → 走査 → 確認 → 実行）を行う。
+ * @param {{canRequestPermission?: boolean}} [options={}] - 権限ダイアログを出してよいか。
+ *   popup からの自動起動はユーザー操作の文脈が無いため false で呼ぶ。
+ */
+const runLikeCountUpdate = async ({ canRequestPermission = true } = {}) => {
   const presetId = likeCountPresetEl?.value ?? "";
   if (!presetId || likeCountRunning) {
     return;
@@ -1150,7 +1157,7 @@ const runLikeCountUpdate = async () => {
       return;
     }
     let permission = await handle.queryPermission({ mode: "readwrite" });
-    if (permission !== "granted") {
+    if (permission !== "granted" && canRequestPermission) {
       permission = await handle.requestPermission({ mode: "readwrite" });
     }
     if (permission !== "granted") {
@@ -1189,6 +1196,37 @@ const runLikeCountUpdate = async () => {
     likeCountCancelRequested = false;
     setLikeCountRunning(false);
   }
+};
+
+/**
+ * popup の「スキ数を更新」から開かれた場合に、その場で処理を始める。
+ * popup 内では権限ダイアログを開けず、閉じると処理も消えるため、
+ * 実行の意思だけを storage 経由で受け取ってこちらで実行する。
+ */
+const consumePendingLikeCountRun = async () => {
+  let stored = {};
+  try {
+    stored = await chrome.storage.local.get([PENDING_LIKE_COUNT_RUN_KEY]);
+  } catch {
+    return;
+  }
+  if (!stored[PENDING_LIKE_COUNT_RUN_KEY]) {
+    return;
+  }
+
+  // 再読み込みで再実行されないよう、先に消しておく。
+  try {
+    await chrome.storage.local.remove(PENDING_LIKE_COUNT_RUN_KEY);
+  } catch {
+    // 消せなくても実行自体は続ける
+  }
+
+  try {
+    likeCountSectionEl?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  } catch {
+    // スクロールできなくても実行には影響しない
+  }
+  await runLikeCountUpdate({ canRequestPermission: false });
 };
 
 /* -------------------------------- 描画処理 -------------------------------- */
@@ -1656,7 +1694,8 @@ const bindEvents = () => {
   });
 };
 
-void loadConfigs().then(() => {
+void loadConfigs().then(async () => {
   Object.values(STATUS_TARGETS).forEach((target) => clearStatus(target));
   bindEvents();
+  await consumePendingLikeCountRun();
 });
