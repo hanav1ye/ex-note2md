@@ -63,6 +63,16 @@ const bulkAddModalTitleEl = $("bulkAddModalTitle");
 const bulkAddModalHintEl = $("bulkAddModalHint");
 const bulkAddTextareaEl = $("bulkAddTextarea");
 const bulkAddCancelBtn = $("bulkAddCancelBtn");
+const likeCountPresetEl = $("likeCountPreset");
+const likeCountPresetHintEl = $("likeCountPresetHint");
+const likeCountRunBtn = $("likeCountRunBtn");
+const likeCountCancelBtn = $("likeCountCancelBtn");
+const likeCountStatusEl = $("likeCountStatus");
+const likeCountConfirmModalEl = $("likeCountConfirmModal");
+const likeCountConfirmFormEl = $("likeCountConfirmForm");
+const likeCountConfirmBodyEl = $("likeCountConfirmBody");
+const likeCountConfirmSkippedEl = $("likeCountConfirmSkipped");
+const likeCountConfirmCancelBtn = $("likeCountConfirmCancelBtn");
 const exportSettingsBtn = $("exportSettingsBtn");
 const importSettingsBtn = $("importSettingsBtn");
 const importSettingsInputEl = $("importSettingsInput");
@@ -79,6 +89,7 @@ const STATUS_TARGETS = {
   tagSet: "tagSet",
   obsidian: "obsidian",
   image: "image",
+  likeCount: "likeCount",
   transfer: "transfer",
 };
 
@@ -118,6 +129,9 @@ const statusElementByTarget = (target) => {
   }
   if (target === STATUS_TARGETS.image) {
     return imageImportStatusEl;
+  }
+  if (target === STATUS_TARGETS.likeCount) {
+    return likeCountStatusEl;
   }
   if (target === STATUS_TARGETS.transfer) {
     return transferStatusEl;
@@ -957,6 +971,226 @@ const deleteHandle = async (presetId) => {
   }).finally(() => db.close());
 };
 
+/* ------------------------------ スキ数の更新 ------------------------------ */
+
+let likeCountRunning = false;
+let likeCountCancelRequested = false;
+
+/**
+ * 指定ミリ秒待つ。
+ * @param {number} ms - 待機時間。
+ * @returns {Promise<void>} 待機の完了。
+ */
+const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+
+/** フォルダを設定済みのプリセットID一覧を返す。 */
+const getFolderReadyPresetIds = () => PRESET_IDS.filter((id) => presetConfigs[id]?.hasFolder);
+
+/** 実行中かどうかに応じてボタンと選択欄の状態を切り替える。 */
+const setLikeCountRunning = (running) => {
+  likeCountRunning = running;
+  const hasTarget = getFolderReadyPresetIds().length > 0;
+  if (likeCountRunBtn) {
+    likeCountRunBtn.disabled = running || !hasTarget;
+  }
+  if (likeCountPresetEl) {
+    likeCountPresetEl.disabled = running || !hasTarget;
+  }
+  likeCountCancelBtn?.classList.toggle("hidden", !running);
+  if (likeCountCancelBtn) {
+    likeCountCancelBtn.disabled = false;
+  }
+};
+
+/** スキ数更新の対象プリセット選択欄を描画する。 */
+const renderLikeCountField = () => {
+  if (!likeCountPresetEl) {
+    return;
+  }
+
+  const readyIds = getFolderReadyPresetIds();
+  const previous = likeCountPresetEl.value;
+  likeCountPresetEl.innerHTML = "";
+
+  readyIds.forEach((id) => {
+    const config = presetConfigs[id];
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = `${presetDisplayName(id, config)}${t("preset.optionSuffixConfigured", {
+      label: config.folderLabel || t("preset.folderSelected"),
+    })}`;
+    likeCountPresetEl.appendChild(option);
+  });
+
+  likeCountPresetEl.value = readyIds.includes(previous) ? previous : readyIds[0] ?? "";
+  likeCountPresetHintEl?.classList.toggle("hidden", readyIds.length > 0);
+  setLikeCountRunning(likeCountRunning);
+};
+
+/**
+ * 実行前の確認ダイアログを出す。
+ * @param {{folder: string, total: number, targets: number, skipped: number}} summary - 走査結果。
+ * @returns {Promise<boolean>} 実行するなら true。
+ */
+const confirmLikeCountUpdate = (summary) =>
+  new Promise((resolveConfirm) => {
+    if (!likeCountConfirmModalEl || !likeCountConfirmFormEl) {
+      resolveConfirm(false);
+      return;
+    }
+
+    if (likeCountConfirmBodyEl) {
+      likeCountConfirmBodyEl.textContent = t("options.likeCount.confirmBody", summary);
+    }
+    if (likeCountConfirmSkippedEl) {
+      likeCountConfirmSkippedEl.textContent =
+        summary.skipped > 0 ? t("options.likeCount.confirmSkipped", { count: summary.skipped }) : "";
+      likeCountConfirmSkippedEl.classList.toggle("hidden", summary.skipped === 0);
+    }
+
+    const finish = (accepted) => {
+      likeCountConfirmFormEl.removeEventListener("submit", onSubmit);
+      likeCountConfirmCancelBtn?.removeEventListener("click", onCancel);
+      likeCountConfirmModalEl.removeEventListener("close", onCancel);
+      likeCountConfirmModalEl.close();
+      resolveConfirm(accepted);
+    };
+    const onSubmit = (event) => {
+      event.preventDefault();
+      finish(true);
+    };
+    const onCancel = () => finish(false);
+
+    likeCountConfirmFormEl.addEventListener("submit", onSubmit);
+    likeCountConfirmCancelBtn?.addEventListener("click", onCancel);
+    // Esc で閉じられた場合も「実行しない」として扱う。
+    likeCountConfirmModalEl.addEventListener("close", onCancel);
+    likeCountConfirmModalEl.showModal();
+  });
+
+/**
+ * 対象ファイルを1件ずつ処理してスキ数を書き戻す。
+ * @param {object[]} targets - planUpdates が返した更新対象。
+ * @param {number} skippedCount - note_id を解決できなかった件数。
+ */
+const applyLikeCountUpdates = async (targets, skippedCount) => {
+  // 同じ記事が複数ファイルにある場合に API を二度叩かないようにする。
+  const likeCountCache = new Map();
+  let updated = 0;
+  let unchanged = 0;
+  let failed = 0;
+
+  for (let index = 0; index < targets.length; index += 1) {
+    if (likeCountCancelRequested) {
+      break;
+    }
+    const target = targets[index];
+    setStatus(
+      STATUS_TARGETS.likeCount,
+      t("options.likeCount.progress", { current: index + 1, total: targets.length })
+    );
+
+    try {
+      let likeCount = likeCountCache.get(target.noteId);
+      if (likeCount === undefined) {
+        likeCount = await NtmLikeCount.fetchLikeCount(target.noteId);
+        likeCountCache.set(target.noteId, likeCount);
+        // note の API を連続で叩かないよう間隔を空ける。
+        await sleep(NtmLikeCount.DEFAULT_DELAY_MS);
+      }
+
+      // 値が同じなら書き込まない。Obsidian の同期が無駄に走るのを避ける。
+      if (target.currentLikeCount === likeCount) {
+        unchanged += 1;
+        continue;
+      }
+
+      const writable = await target.handle.createWritable();
+      await writable.write(NtmLikeCount.applyLikeCountToContent(target.content, likeCount));
+      await writable.close();
+      updated += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+
+  if (likeCountCancelRequested) {
+    setStatus(
+      STATUS_TARGETS.likeCount,
+      t("options.likeCount.cancelled", {
+        updated,
+        unchanged,
+        remaining: targets.length - updated - unchanged - failed,
+      })
+    );
+    return;
+  }
+
+  setStatus(
+    STATUS_TARGETS.likeCount,
+    t("options.likeCount.done", { updated, unchanged, skipped: skippedCount, failed })
+  );
+};
+
+/** スキ数更新の一連の流れ（権限確認 → 走査 → 確認 → 実行）を行う。 */
+const runLikeCountUpdate = async () => {
+  const presetId = likeCountPresetEl?.value ?? "";
+  if (!presetId || likeCountRunning) {
+    return;
+  }
+
+  likeCountCancelRequested = false;
+  setLikeCountRunning(true);
+
+  try {
+    // requestPermission はユーザー操作の直後でないと通らないため、走査より先に済ませる。
+    const handle = await getHandle(presetId);
+    if (!handle) {
+      setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.permissionRequired"));
+      return;
+    }
+    let permission = await handle.queryPermission({ mode: "readwrite" });
+    if (permission !== "granted") {
+      permission = await handle.requestPermission({ mode: "readwrite" });
+    }
+    if (permission !== "granted") {
+      permissionStates[presetId] = "prompt";
+      render();
+      setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.permissionRequired"));
+      return;
+    }
+
+    setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.scanning"));
+    const files = await NtmLikeCount.collectMarkdownFiles(handle);
+    const { targets, skipped } = await NtmLikeCount.planUpdates(files);
+
+    if (targets.length === 0) {
+      setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.noTargets"));
+      return;
+    }
+
+    const accepted = await confirmLikeCountUpdate({
+      folder: presetConfigs[presetId]?.folderLabel || presetDisplayName(presetId, presetConfigs[presetId]),
+      total: files.length,
+      targets: targets.length,
+      skipped: skipped.length,
+    });
+    if (!accepted) {
+      clearStatus(STATUS_TARGETS.likeCount);
+      return;
+    }
+
+    await applyLikeCountUpdates(targets, skipped.length);
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.failed"));
+    }
+  } finally {
+    likeCountCancelRequested = false;
+    setLikeCountRunning(false);
+  }
+};
+
 /* -------------------------------- 描画処理 -------------------------------- */
 
 /**
@@ -1121,6 +1355,7 @@ const render = () => {
 
   setSelectedRadio(imageImportModeInputs, imageImportMode);
   renderImageFolderField();
+  renderLikeCountField();
 };
 
 /** 現在stateを chrome.storage.local へ保存する。 */
@@ -1385,6 +1620,21 @@ const bindEvents = () => {
 
   bulkAddCancelBtn?.addEventListener("click", () => {
     closeBulkModal();
+  });
+
+  likeCountRunBtn?.addEventListener("click", async () => {
+    await runLikeCountUpdate();
+  });
+
+  likeCountCancelBtn?.addEventListener("click", () => {
+    if (!likeCountRunning) {
+      return;
+    }
+    likeCountCancelRequested = true;
+    if (likeCountCancelBtn) {
+      likeCountCancelBtn.disabled = true;
+    }
+    setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.cancelling"));
   });
 
   exportSettingsBtn?.addEventListener("click", () => {

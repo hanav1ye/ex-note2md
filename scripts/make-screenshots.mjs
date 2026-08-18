@@ -239,6 +239,7 @@ const onlySections = (keepTitleIds) => {
     "tagSectionTitle",
     "tagSetSectionTitle",
     "obsidianSectionTitle",
+    "likeCountSectionTitle",
     "transferSectionTitle",
   ];
   const hidden = all

@@ -22,6 +22,7 @@
 - Obsidian 向けリンク化（指定ワードを `[[単語]]` 化）
 - UI の **日本語 / 英語** 切り替え（既定はブラウザの表示言語に追従）
 - タグ・Obsidian 設定の **JSON エクスポート / インポート**
+- 保存済み `.md` の **スキ数（`like_count`）を note の最新値へ一括更新**
 
 ## Markdown 変換の対応範囲
 
@@ -130,6 +131,18 @@ Markdown の出力内容（frontmatter のキー名など）は表示言語の�
 
 保存先プリセットの表示名を空にすると、その言語の既定名（`プリセット1` / `Preset 1`）が使われます。
 
+### スキ数を更新
+
+オプション画面の `スキ数を更新` で、保存先プリセットのフォルダ配下にある変換済み `.md` の frontmatter `like_count` を、note の最新値へ一括更新します。サブフォルダも対象です。
+
+- 対象の判定は `note_id` → `source` の URL → ファイル名（`nxxxx.md`）の順
+- 実行前に「.md 何件中、何件を更新するか」を確認ダイアログで表示します。**ファイルを上書きするため取り消しはできません**
+- 既存の `like_count` は常に最新値で上書きします。ただし**値が同じファイルは書き込みません**（Obsidian の同期が不要に走るのを避けるため）
+- 同じ記事が複数ファイルにある場合、API 呼び出しは 1 回だけです
+- note の API へは 300ms 間隔で問い合わせます。実行中は「中止」で止められます
+
+同じ処理は CLI（`npm run update-like-count`）でも実行できます。大量のファイルを一度に処理する場合は CLI のほうが速く、拡張機能側は Obsidian を開いたまま手元で走らせる用途を想定しています。
+
 ### 設定のインポート / エクスポート
 
 オプション画面の `設定のインポート / エクスポート` で、以下を JSON ファイルとしてやり取りできます。
@@ -191,10 +204,11 @@ File System Access API で選択した保存先フォルダのハンドルを保
 |------|------|
 | `lib/noteToMarkdown.js` | note DOM → Markdown 変換 |
 | `lib/i18n.js` | UI 文言カタログ（日本語 / 英語）と表示言語の解決 |
+| `lib/likeCount.js` | frontmatter の like_count 更新と .md フォルダ走査 |
 | `content/content.js` | 記事ページでの変換 API、リンク選択・一括処理 |
 | `background.js` | 保存処理・ファイル存在チェック |
 | `popup/` | 変換 UI |
-| `options/` | 表示言語 / 保存先プリセット / タグ候補 / タグセットプリセット / Obsidian 設定 / 設定の入出力 |
+| `options/` | 表示言語 / 保存先プリセット / タグ候補 / タグセットプリセット / Obsidian 設定 / スキ数更新 / 設定の入出力 |
 | `_locales/` | manifest の拡張機能名・説明のローカライズ |
 | `manifest.json` | Manifest V3 定義 |
 | `scripts/build-dist.mjs` | 配布用 `dist/` の生成（検証 + minify） |
@@ -230,9 +244,10 @@ npm install
 | `tests/conversion-parity.test.mjs` | タブ変換とURL変換の出力一致 |
 | `tests/conversion-unit.test.mjs` | frontmatter・記法・Obsidianリンク化などの個別仕様 |
 | `tests/i18n.test.mjs` | 表示言語の解決・フォールバック・DOM への適用 |
+| `tests/likecount.test.mjs` | frontmatter の like_count 更新・.md 走査・API 取得 |
 | `tests/background.test.mjs` | 保存処理、URL/ファイル名の検証、メッセージ検証 |
 | `tests/content-ui.test.mjs` | 選択モード、一括処理の中止、Shadow DOM 隔離 |
-| `tests/options-ui.test.mjs` | タグ候補・タグセット・フォルダ権限の再許可・設定の入出力・表示言語 |
+| `tests/options-ui.test.mjs` | タグ候補・タグセット・フォルダ権限の再許可・設定の入出力・表示言語・スキ数更新 |
 | `tests/popup-ui.test.mjs` | タグ選択・タグセット適用・保存先プリセット表示・表示言語 |
 
 実ブラウザでしか確認できない項目は [docs/manual-qa.md](docs/manual-qa.md) にまとめています。

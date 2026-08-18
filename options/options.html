@@ -199,6 +199,27 @@
       </div>
     </section>
 
+    <section class="settings-section" aria-labelledby="likeCountSectionTitle">
+      <h2 id="likeCountSectionTitle" class="settings-section-title" data-i18n="options.likeCount.title">スキ数を更新</h2>
+      <p class="hint inline" data-i18n="options.likeCount.hint">
+        保存先プリセットのフォルダ配下にある変換済み .md を走査し、frontmatter の like_count を note の最新値へ更新します。
+      </p>
+      <div class="settings-card">
+        <label>
+          <span data-i18n="options.likeCount.presetLabel">対象フォルダ</span>
+          <select id="likeCountPreset"></select>
+        </label>
+        <p id="likeCountPresetHint" class="hint inline empty-hint" data-i18n="options.likeCount.noPreset">
+          フォルダを設定したプリセットがありません。先に「保存先プリセット設定」でフォルダを選んでください。
+        </p>
+        <div class="bulk-add-row transfer-actions">
+          <button id="likeCountRunBtn" type="button" data-i18n="options.likeCount.run">スキ数を更新</button>
+          <button id="likeCountCancelBtn" type="button" class="ghost hidden" data-i18n="options.likeCount.cancel">中止</button>
+        </div>
+        <div id="likeCountStatus" class="status" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
     <section class="settings-section" aria-labelledby="transferSectionTitle">
       <h2 id="transferSectionTitle" class="settings-section-title" data-i18n="options.transfer.title">設定のインポート / エクスポート</h2>
       <p class="hint inline" data-i18n="options.transfer.hint">
@@ -237,7 +258,23 @@
     </form>
   </dialog>
 
+  <dialog id="likeCountConfirmModal" class="bulk-add-modal" aria-labelledby="likeCountConfirmTitle">
+    <form id="likeCountConfirmForm" method="dialog" class="bulk-add-form">
+      <h3 id="likeCountConfirmTitle" class="bulk-add-title" data-i18n="options.likeCount.confirmTitle">スキ数を更新します</h3>
+      <p id="likeCountConfirmBody" class="hint inline"></p>
+      <p id="likeCountConfirmSkipped" class="hint inline"></p>
+      <p class="hint inline warning" data-i18n="options.likeCount.confirmWarning">
+        ファイルを書き換えます。取り消しはできません。
+      </p>
+      <div class="bulk-add-actions">
+        <button id="likeCountConfirmCancelBtn" type="button" class="ghost" data-i18n="common.cancel">キャンセル</button>
+        <button id="likeCountConfirmRunBtn" type="submit" data-i18n="options.likeCount.confirmRun">更新する</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="../lib/i18n.js"></script>
+  <script src="../lib/likeCount.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

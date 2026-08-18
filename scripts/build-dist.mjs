@@ -119,6 +119,7 @@ cpSync("_locales", `${DIST_DIR}/_locales`, { recursive: true });
 run('npx --no-install terser "background.js" -c -m -o "dist/background.js"');
 run('npx --no-install terser "content/content.js" -c -m -o "dist/content/content.js"');
 run('npx --no-install terser "lib/i18n.js" -c -m -o "dist/lib/i18n.js"');
+run('npx --no-install terser "lib/likeCount.js" -c -m -o "dist/lib/likeCount.js"');
 run('npx --no-install terser "lib/noteToMarkdown.js" -c -m -o "dist/lib/noteToMarkdown.js"');
 run('npx --no-install terser "popup/popup.js" -c -m -o "dist/popup/popup.js"');
 run('npx --no-install terser "options/options.js" -c -m -o "dist/options/options.js"');
@@ -131,6 +132,7 @@ const expectedOutputs = [
   "background.js",
   "content/content.js",
   "lib/i18n.js",
+  "lib/likeCount.js",
   "lib/noteToMarkdown.js",
   "_locales/ja/messages.json",
   "_locales/en/messages.json",

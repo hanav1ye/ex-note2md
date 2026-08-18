@@ -367,3 +367,8 @@ button.ghost {
   gap: 8px;
   margin-top: 12px;
 }
+
+.hint.inline.warning {
+  color: #b45309;
+  font-weight: 600;
+}
