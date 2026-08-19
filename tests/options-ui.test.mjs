@@ -856,3 +856,65 @@ test("指示が無ければ勝手に走らない", async () => {
   assert.equal(file.state.writes, 0);
   assert.equal(doc.getElementById("likeCountStatus").textContent, "");
 });
+
+test("実行中にファイルが編集されてもその編集を消さない", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({
+    store: LIKE_COUNT_STORE,
+    handles: { preset1: vault },
+  });
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+
+  // 走査は済み、API 応答待ちの間に別アプリ（Obsidian）が本文へ加筆した状況
+  await flush(30);
+  file.state.contents = file.state.contents.replace("本文", "本文\n\n実行中に書き足した段落");
+
+  await flush(600);
+
+  assert.match(file.state.contents, /like_count: 55/, "スキ数が更新されていません");
+  assert.match(file.state.contents, /実行中に書き足した段落/, "実行中の編集を消しています");
+});
+
+test("走査後に別の記事へ変わったファイルは書き換えない", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({
+    store: LIKE_COUNT_STORE,
+    handles: { preset1: vault },
+  });
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+
+  await flush(30);
+  const swapped = articleMarkdown("nzzz999", 3);
+  file.state.contents = swapped;
+
+  await flush(600);
+
+  assert.equal(file.state.contents, swapped, "別記事に変わったファイルを書き換えています");
+  assert.match(doc.getElementById("likeCountStatus").textContent, /対象外 1件/);
+});
+
+test("水平線を含むだけのメモは対象外にする", async () => {
+  const memo = createMarkdownFile("nabcdef123456.md", "---\nここは本文です\n---\n\n続き\n");
+  const vault = createVaultHandle({ "nabcdef123456.md": memo });
+  const { win, doc } = await loadOptions({
+    store: LIKE_COUNT_STORE,
+    handles: { preset1: vault },
+  });
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(120);
+
+  assert.equal(memo.state.writes, 0, "本文へ like_count を挿し込んでいます");
+  assert.match(doc.getElementById("likeCountStatus").textContent, /見つかりませんでした/);
+});

@@ -90,6 +90,10 @@ const splitFrontmatter = (content) => {
   if (!match) {
     return null;
   }
+  // 水平線に挟まれただけの本文を frontmatter と誤認しないよう、YAML のキー行を要求する。
+  if (!/^[A-Za-z_][\w-]*\s*:/m.test(match[1])) {
+    return null;
+  }
   return {
     frontmatter: match[1],
     body: match[3],
@@ -125,8 +129,10 @@ const resolveNoteId = (frontmatter, filePath) => {
     }
   }
 
+  // note の記事IDは n + 十数桁の16進数。桁数の下限を設けないと
+  // nade / nabe のような普通のファイル名まで一致してしまう。
   const stem = basename(filePath, ".md");
-  if (/^n[a-f0-9]+$/i.test(stem)) {
+  if (/^n[0-9a-f]{8,}$/i.test(stem)) {
     return stem;
   }
 

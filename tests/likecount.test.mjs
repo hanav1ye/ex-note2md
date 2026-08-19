@@ -95,7 +95,7 @@ test("note_id は frontmatter・source・ファイル名の順で解決する", 
     lib.resolveNoteId('source: "https://note.com/hanaviye/n/ndef456"', "whatever.md"),
     "ndef456"
   );
-  assert.equal(lib.resolveNoteId("title: x", "n789abc.md"), "n789abc");
+  assert.equal(lib.resolveNoteId("title: x", "n361272941d2a.md"), "n361272941d2a");
   assert.equal(lib.resolveNoteId("title: x", "普通のメモ.md"), null);
 });
 
@@ -206,4 +206,62 @@ test("like_count が数値でなければ失敗として扱う", async () => {
     fetchImpl: async () => ({ ok: true, json: async () => ({ data: {} }) }),
   });
   await assert.rejects(() => lib.fetchLikeCount("nabc123"));
+});
+
+/* ------------------------------ 誤爆の防止 ------------------------------ */
+
+test("水平線に挟まれただけの本文は frontmatter とみなさない", () => {
+  const lib = loadLikeCount();
+  const hr = "---\nここは本文です\n---\n\n続き\n";
+  assert.equal(lib.splitFrontmatter(hr), null);
+  // 誤って like_count を挿し込まないこと
+  assert.equal(lib.applyLikeCountToContent(hr, 55), hr);
+});
+
+test("普通のファイル名を note_id と誤認しない", () => {
+  const lib = loadLikeCount();
+  ["nade", "nabe", "n0", "nada", "nb"].forEach((stem) => {
+    assert.equal(
+      lib.resolveNoteId("title: 自分のメモ", `${stem}.md`),
+      null,
+      `${stem}.md を note_id とみなしています`
+    );
+  });
+  // 実在する形式（n + 12桁の16進数）は従来どおり通す
+  assert.equal(lib.resolveNoteId("title: x", "n361272941d2a.md"), "n361272941d2a");
+});
+
+test("書き込み直前の検査は最新の内容を土台にする", () => {
+  const lib = loadLikeCount();
+  // 走査後にユーザーが本文へ加筆した状況
+  const edited = ARTICLE.replace("本文", "本文\n\nあとから書き足した段落");
+  const result = lib.buildUpdatedContent(edited, "nabc123.md", "nabc123", 55);
+
+  assert.equal(result.status, "ok");
+  assert.match(result.content, /like_count: 55/);
+  assert.match(result.content, /あとから書き足した段落/, "加筆分が失われています");
+});
+
+test("走査後に別の記事へ変わったファイルには触らない", () => {
+  const lib = loadLikeCount();
+  const swapped = ARTICLE.replace(/nabc123/g, "nzzz999");
+  const result = lib.buildUpdatedContent(swapped, "nabc123.md", "nabc123", 55);
+
+  assert.equal(result.status, "mismatch");
+  assert.equal(result.content, swapped, "内容を書き換えています");
+});
+
+test("走査後に frontmatter が消えたファイルには触らない", () => {
+  const lib = loadLikeCount();
+  const stripped = "# 記事\n\n本文\n";
+  const result = lib.buildUpdatedContent(stripped, "nabc123.md", "nabc123", 55);
+
+  assert.equal(result.status, "mismatch");
+  assert.equal(result.content, stripped);
+});
+
+test("値が変わらないなら書き込み対象にしない", () => {
+  const lib = loadLikeCount();
+  const result = lib.buildUpdatedContent(ARTICLE, "nabc123.md", "nabc123", 10);
+  assert.equal(result.status, "unchanged");
 });

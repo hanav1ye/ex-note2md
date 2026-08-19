@@ -1081,6 +1081,7 @@ const applyLikeCountUpdates = async (targets, skippedCount) => {
   const likeCountCache = new Map();
   let updated = 0;
   let unchanged = 0;
+  let mismatched = 0;
   let failed = 0;
 
   for (let index = 0; index < targets.length; index += 1) {
@@ -1102,14 +1103,29 @@ const applyLikeCountUpdates = async (targets, skippedCount) => {
         await sleep(NtmLikeCount.DEFAULT_DELAY_MS);
       }
 
+      // 走査時の内容ではなく、書き込む直前に読み直した内容を土台にする。
+      // 実行中にユーザーがそのファイルを編集していても、その編集を消さないため。
+      const freshContent = await (await target.handle.getFile()).text();
+      const result = NtmLikeCount.buildUpdatedContent(
+        freshContent,
+        target.name,
+        target.noteId,
+        likeCount
+      );
+
+      // 走査後に別物へ変わったファイルには触らない。
+      if (result.status === "mismatch") {
+        mismatched += 1;
+        continue;
+      }
       // 値が同じなら書き込まない。Obsidian の同期が無駄に走るのを避ける。
-      if (target.currentLikeCount === likeCount) {
+      if (result.status === "unchanged") {
         unchanged += 1;
         continue;
       }
 
       const writable = await target.handle.createWritable();
-      await writable.write(NtmLikeCount.applyLikeCountToContent(target.content, likeCount));
+      await writable.write(result.content);
       await writable.close();
       updated += 1;
     } catch {
@@ -1123,7 +1139,7 @@ const applyLikeCountUpdates = async (targets, skippedCount) => {
       t("options.likeCount.cancelled", {
         updated,
         unchanged,
-        remaining: targets.length - updated - unchanged - failed,
+        remaining: targets.length - updated - unchanged - mismatched - failed,
       })
     );
     return;
@@ -1131,7 +1147,12 @@ const applyLikeCountUpdates = async (targets, skippedCount) => {
 
   setStatus(
     STATUS_TARGETS.likeCount,
-    t("options.likeCount.done", { updated, unchanged, skipped: skippedCount, failed })
+    t("options.likeCount.done", {
+      updated,
+      unchanged,
+      skipped: skippedCount + mismatched,
+      failed,
+    })
   );
 };
 
