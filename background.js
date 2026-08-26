@@ -3,12 +3,9 @@ importScripts("lib/i18n.js");
 
 const t = (key, params) => NtmI18n.t(key, params);
 
-const PRESET_IDS = ["preset1", "preset2", "preset3"];
-const DEFAULT_PRESET_CONFIGS = {
-  preset1: { name: "", folderLabel: "", hasFolder: false },
-  preset2: { name: "", folderLabel: "", hasFolder: false },
-  preset3: { name: "", folderLabel: "", hasFolder: false },
-};
+/** 保存先プリセットの数。options.js の PRESET_COUNT と揃えること。 */
+const PRESET_COUNT = 5;
+const PRESET_IDS = Array.from({ length: PRESET_COUNT }, (_, index) => `preset${index + 1}`);
 // 1.0.0 までは既定の表示名を日本語のまま保存していた。表示だけロケールに追従させる。
 const LEGACY_DEFAULT_PRESET_NAMES = ["プリセット1", "プリセット2", "プリセット3"];
 const DB_NAME = "noteToMarkdownPresets";
@@ -106,13 +103,10 @@ const sanitizePresetConfig = (config) => ({
 /**
  * 保存済みプリセット設定全体を正規化する。
  * @param {any} configs - chrome.storage.local から取得した値。
- * @returns {{preset1: object, preset2: object, preset3: object}} 正規化後設定。
+ * @returns {Record<string, object>} 正規化後設定。
  */
-const sanitizePresetConfigs = (configs) => ({
-  preset1: sanitizePresetConfig(configs?.preset1),
-  preset2: sanitizePresetConfig(configs?.preset2),
-  preset3: sanitizePresetConfig(configs?.preset3),
-});
+const sanitizePresetConfigs = (configs) =>
+  Object.fromEntries(PRESET_IDS.map((id) => [id, sanitizePresetConfig(configs?.[id])]));
 
 /**
  * 画像保存先フォルダ設定を正規化する。
@@ -193,8 +187,9 @@ const getImageFolderHandle = async () => {
 const getPresetDirectoryHandle = async (downloadPreset) => {
   const selectedPreset = PRESET_IDS.includes(downloadPreset) ? downloadPreset : "preset1";
   const stored = await chrome.storage.local.get(["presetConfigs"]);
-  const presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
-  const selectedConfig = presetConfigs[selectedPreset] ?? DEFAULT_PRESET_CONFIGS[selectedPreset];
+  // sanitizePresetConfigs は未保存でも PRESET_IDS 全件を埋めて返す。
+  const presetConfigs = sanitizePresetConfigs(stored.presetConfigs);
+  const selectedConfig = presetConfigs[selectedPreset];
 
   const displayName = presetDisplayName(selectedPreset, selectedConfig);
 

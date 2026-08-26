@@ -918,3 +918,53 @@ test("水平線を含むだけのメモは対象外にする", async () => {
   assert.equal(memo.state.writes, 0, "本文へ like_count を挿し込んでいます");
   assert.match(doc.getElementById("likeCountStatus").textContent, /見つかりませんでした/);
 });
+
+/* ---------------------------- プリセットの件数 ---------------------------- */
+
+test("保存先プリセットを5つ表示する", async () => {
+  const { doc } = await loadOptions();
+  const cards = [...doc.querySelectorAll(".preset-card")];
+
+  assert.equal(cards.length, 5);
+  assert.deepEqual(
+    cards.map((card) => card.dataset.presetId),
+    ["preset1", "preset2", "preset3", "preset4", "preset5"]
+  );
+  // 従来どおりの ID で各操作要素が引けること
+  ["Name", "Folder", "Grant", "Pick", "Clear"].forEach((suffix) => {
+    assert.ok(doc.getElementById(`preset5${suffix}`), `preset5${suffix} がありません`);
+  });
+});
+
+test("増えたプリセットも既定名と文言がロケールに従う", async () => {
+  const { doc } = await loadOptions({ uiLanguage: "en" });
+  assert.equal(doc.querySelector('[data-preset-id="preset5"] h3').textContent, "Preset 5");
+  assert.equal(doc.getElementById("preset5Pick").textContent, "Choose folder");
+  assert.match(doc.getElementById("preset5Name").placeholder, /Destination name/);
+});
+
+test("4つ目以降のプリセットもフォルダを設定して保存できる", async () => {
+  const handle = createHandleStub("granted");
+  const { win, doc, store } = await loadOptions({ handles: {} });
+  win.showDirectoryPicker = async () => handle;
+
+  click(win, doc.getElementById("preset4Pick"));
+  await flush(60);
+
+  assert.equal(store.presetConfigs.preset4.hasFolder, true);
+  assert.equal(store.presetConfigs.preset4.folderLabel, "Notes");
+  assert.equal(store.presetConfigs.preset5.hasFolder, false);
+});
+
+test("スキ数更新の対象にも5つ目のプリセットが並ぶ", async () => {
+  const { doc } = await loadOptions({
+    store: {
+      presetConfigs: {
+        preset5: { name: "5番目", folderLabel: "Notes", hasFolder: true },
+      },
+    },
+  });
+  const select = doc.getElementById("likeCountPreset");
+  assert.equal(select.options.length, 1);
+  assert.equal(select.value, "preset5");
+});

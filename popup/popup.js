@@ -1,7 +1,9 @@
 // 拡張機能ポップアップ: 変換元・出力先の選択と変換実行
 const t = (key, params) => NtmI18n.t(key, params);
 
-const FOLDER_PRESET_IDS = ["preset1", "preset2", "preset3"];
+/** 保存先プリセットの数。options.js の PRESET_COUNT と揃えること。 */
+const PRESET_COUNT = 5;
+const FOLDER_PRESET_IDS = Array.from({ length: PRESET_COUNT }, (_, index) => `preset${index + 1}`);
 // 1.0.0 までは既定の表示名を日本語のまま保存していた。表示だけロケールに追従させる。
 const LEGACY_DEFAULT_PRESET_NAMES = ["プリセット1", "プリセット2", "プリセット3"];
 const IMAGE_IMPORT_MODES = ["url", "download", "base64"];
@@ -46,13 +48,16 @@ const STORAGE_KEY_NAMES = [
   "presetTagSets",
   "selectedTagSetId",
 ];
-const DEFAULT_PRESET_CONFIGS = {
-  preset1: { name: "", folderLabel: "", hasFolder: false },
-  preset2: { name: "", folderLabel: "", hasFolder: false },
-  preset3: { name: "", folderLabel: "", hasFolder: false },
-};
+/**
+ * 未設定状態のプリセット設定を作る。
+ * @returns {Record<string, {name: string, folderLabel: string, hasFolder: boolean}>} 既定設定。
+ */
+const createDefaultPresetConfigs = () =>
+  Object.fromEntries(
+    FOLDER_PRESET_IDS.map((id) => [id, { name: "", folderLabel: "", hasFolder: false }])
+  );
 
-let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
+let presetConfigs = createDefaultPresetConfigs();
 let presetTagCandidates = [];
 let presetTagSets = [];
 let splashTimer = null;
@@ -487,13 +492,10 @@ const sanitizePresetConfig = (config) => ({
 /**
  * プリセット設定全体を正規化する。
  * @param {any} configs - 生設定。
- * @returns {{preset1: object, preset2: object, preset3: object}} 正規化済み設定群。
+ * @returns {Record<string, object>} 正規化済み設定群。
  */
-const sanitizePresetConfigs = (configs) => ({
-  preset1: sanitizePresetConfig(configs?.preset1),
-  preset2: sanitizePresetConfig(configs?.preset2),
-  preset3: sanitizePresetConfig(configs?.preset3),
-});
+const sanitizePresetConfigs = (configs) =>
+  Object.fromEntries(FOLDER_PRESET_IDS.map((id) => [id, sanitizePresetConfig(configs?.[id])]));
 
 /**
  * UI表示用のプリセット名を返す。
@@ -565,15 +567,20 @@ const updateDownloadPresetHint = () => {
   downloadPresetHintEl.classList.toggle("hidden", !showHint);
 };
 
-/** ダウンロード先セレクトの表示名/disable状態を更新する。 */
-const renderPresetOptions = () => {
+/**
+ * ダウンロード先セレクトの選択肢を FOLDER_PRESET_IDS から作り直す。
+ * @param {string} [preferredId=downloadPresetEl.value] - 復元したい選択値。
+ *   選択肢が無い状態で value を代入しても効かないため、呼び出し側から渡せるようにしている。
+ */
+const renderPresetOptions = (preferredId = downloadPresetEl.value) => {
   const configuredIds = getConfiguredPresetIds();
 
+  downloadPresetEl.innerHTML = "";
   FOLDER_PRESET_IDS.forEach((id) => {
-    const option = downloadPresetEl.querySelector(`option[value="${id}"]`);
-    if (!option) {
-      return;
-    }
+    const option = document.createElement("option");
+    option.value = id;
+    downloadPresetEl.appendChild(option);
+
     const config = presetConfigs[id];
     const suffix = config?.hasFolder
       ? t("preset.optionSuffixConfigured", {
@@ -584,6 +591,10 @@ const renderPresetOptions = () => {
     option.disabled = !config?.hasFolder;
   });
 
+  // 作り直しで選択が失われるため、可能なら元の選択へ戻す。
+  downloadPresetEl.value = FOLDER_PRESET_IDS.includes(preferredId)
+    ? preferredId
+    : FOLDER_PRESET_IDS[0];
   if (configuredIds.length > 0 && !presetConfigs[downloadPresetEl.value]?.hasFolder) {
     downloadPresetEl.value = configuredIds[0];
   }
@@ -619,6 +630,8 @@ const loadPreferences = async () => {
   await NtmI18n.init();
   NtmI18n.applyDom(document);
 
+  let savedDownloadPreset = "";
+
   if (!chrome.storage?.local) {
     updateUrlFieldVisibility();
     updateTabFieldVisibility();
@@ -640,20 +653,17 @@ const loadPreferences = async () => {
     if (typeof stored.articleUrl === "string") {
       articleUrlEl.value = stored.articleUrl;
     }
-    if (
-      typeof stored.downloadPreset === "string" &&
-      FOLDER_PRESET_IDS.includes(stored.downloadPreset)
-    ) {
-      downloadPresetEl.value = stored.downloadPreset;
+    if (FOLDER_PRESET_IDS.includes(stored.downloadPreset)) {
+      savedDownloadPreset = stored.downloadPreset;
     }
-    presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
+    presetConfigs = sanitizePresetConfigs(stored.presetConfigs);
     presetTagCandidates = sanitizeTagCandidates(stored.presetTagCandidates ?? []);
     presetTagSets = sanitizeTagSets(stored.presetTagSets ?? []);
     renderTagSelector(Array.isArray(stored.tags) ? stored.tags : []);
     renderTagSetSelect(typeof stored.selectedTagSetId === "string" ? stored.selectedTagSetId : "");
     syncTagSetSelection();
   } catch {
-    presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
+    presetConfigs = createDefaultPresetConfigs();
     presetTagCandidates = [];
     presetTagSets = [];
     renderTagSelector([]);
@@ -662,7 +672,7 @@ const loadPreferences = async () => {
   updateUrlFieldVisibility();
   updateTabFieldVisibility();
   updateDownloadLocationVisibility();
-  renderPresetOptions();
+  renderPresetOptions(savedDownloadPreset);
   if (getSelectedSourceMode() === "tab") {
     void updateCurrentTabArticleTitle();
   }

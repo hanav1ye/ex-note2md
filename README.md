@@ -12,7 +12,7 @@
 
 - note 記事ページ、または記事 URL から Markdown 生成
 - 変換結果を **コピー** または **ローカルフォルダへ `.md` 保存**
-- 保存先プリセットを最大 3 つ管理
+- 保存先プリセットを最大 5 つ管理
 - 同一 note ID のファイルがある場合は **上書き保存**
 - note ページ上の記事リンクを **単体選択** / **複数選択**
 - 複数選択パネルで **一覧を全選択**
@@ -62,7 +62,7 @@
 ダウンロード機能は **保存先プリセットのフォルダ設定が必須** です。
 
 1. popup 右上の歯車からオプションを開く
-2. `保存先プリセット設定` で `プリセット1〜3` のいずれかにフォルダを設定
+2. `保存先プリセット設定` で `プリセット1〜5` のいずれかにフォルダを設定
 3. popup で設定済みプリセットを選び、`ダウンロード` を実行
 
 未設定の場合はエラーになります。  
@@ -179,7 +179,7 @@ popup のボタンは**入口だけ**で、実処理はオプション画面で�
 | `outputMode` | 変換後（`copy` / `download`） |
 | `articleUrl` | 入力した記事 URL |
 | `tags` | popup で選択中のタグ |
-| `downloadPreset` | 選択中プリセット ID（`preset1`〜`preset3`） |
+| `downloadPreset` | 選択中プリセット ID（`preset1`〜`preset5`） |
 | `imageImportMode` | 画像取込方式（`url` / `download` / `base64`） |
 | `imageFolderConfig` | 画像保存先フォルダ設定（`folderLabel`, `hasFolder`） |
 | `presetConfigs` | プリセット名・フォルダ設定状態 |
@@ -193,7 +193,7 @@ popup のボタンは**入口だけ**で、実処理はオプション画面で�
 ### IndexedDB（`noteToMarkdownPresets`）
 
 File System Access API で選択した保存先フォルダのハンドルを保持します（`directoryHandles`）。  
-キーは Markdown 用の `preset1`〜`preset3` と、画像用の `imageFolder` です。
+キーは Markdown 用の `preset1`〜`preset5` と、画像用の `imageFolder` です。
 
 ## 権限
 

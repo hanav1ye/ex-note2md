@@ -165,7 +165,7 @@ UI を変更したら再生成すること（事前に `npm run build:dist` が�
 | ファイル | 内容 | 添える説明文の案 |
 |----------|------|-----------------|
 | `01-popup.png` | popup 本体（タグセット適用済み） | 開いている記事をワンクリックで Markdown に |
-| `02-options-presets.png` | 保存先プリセット設定 | 保存先フォルダを3つまで登録 |
+| `02-options-presets.png` | 保存先プリセット設定 | 保存先フォルダを5つまで登録 |
 | `03-options-image.png` | 画像取込方式 | 画像は URL 参照・ローカル保存・Base64 から選択 |
 | `04-options-tagsets.png` | タグセットプリセット | よく使うタグの組み合わせを登録して一括適用 |
 | `05-options-obsidian.png` | Obsidian 連携 | 指定ワードを [[単語]] に変換して Obsidian へ |

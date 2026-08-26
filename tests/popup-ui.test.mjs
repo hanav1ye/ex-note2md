@@ -259,3 +259,49 @@ test("スキ数更新ボタンに用途が分かるツールチップを付け�
   const { doc: en } = await loadPopup({ uiLanguage: "en" });
   assert.match(en.getElementById("likeCountBtn").getAttribute("title"), /Refresh like counts/);
 });
+
+/* ---------------------------- プリセットの件数 ---------------------------- */
+
+test("保存先プリセットの選択肢を5つ並べる", async () => {
+  const { doc } = await loadPopup();
+  const select = doc.getElementById("downloadPreset");
+  assert.deepEqual(
+    [...select.options].map((option) => option.value),
+    ["preset1", "preset2", "preset3", "preset4", "preset5"]
+  );
+});
+
+test("4つ目以降のプリセットも選択して保存できる", async () => {
+  const { win, doc, store } = await loadPopup({
+    presetConfigs: {
+      preset4: { name: "4番目", folderLabel: "Work", hasFolder: true },
+    },
+  });
+  const select = doc.getElementById("downloadPreset");
+  assert.equal(select.querySelector('option[value="preset4"]').disabled, false);
+
+  select.value = "preset4";
+  change(win, select);
+  await flush();
+
+  assert.equal(store.downloadPreset, "preset4");
+});
+
+test("保存済みの選択プリセットを復元する", async () => {
+  const { doc } = await loadPopup({
+    downloadPreset: "preset5",
+    presetConfigs: {
+      preset1: { name: "P1", folderLabel: "A", hasFolder: true },
+      preset5: { name: "P5", folderLabel: "B", hasFolder: true },
+    },
+  });
+  assert.equal(doc.getElementById("downloadPreset").value, "preset5");
+});
+
+/* ------------------------------ 画面の並び ------------------------------ */
+
+test("タグ欄を「変換後」の下に置く", async () => {
+  const { doc } = await loadPopup();
+  const titles = [...doc.querySelectorAll(".option-group-title")].map((el) => el.id);
+  assert.deepEqual(titles, ["sourceModeLabel", "outputModeLabel", "tagSelectorLabel"]);
+});

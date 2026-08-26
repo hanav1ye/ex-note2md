@@ -38,49 +38,8 @@
         ダウンロードを使うには、いずれかのプリセットで保存先フォルダを選択してください（必須）。
         Downloads フォルダ直下への保存はできません。サブフォルダ（例: Downloads\note-markdown）を指定してください。
       </p>
-      <div class="preset-list">
-        <article class="preset-card" data-preset-id="preset1">
-          <h3>プリセット1</h3>
-          <label>
-            <span data-i18n="options.preset.nameLabel">表示名</span>
-            <input id="preset1Name" type="text" maxlength="40" placeholder="例: 仕事メモ" data-i18n-placeholder="options.preset.namePlaceholder1" spellcheck="false" />
-          </label>
-          <div class="folder-row">
-            <span id="preset1Folder" class="folder-label">未設定（フォルダ未選択）</span>
-            <button id="preset1Grant" type="button" class="grant hidden" data-i18n="options.preset.grant">アクセスを再許可</button>
-            <button id="preset1Pick" type="button" data-i18n="options.preset.pick">フォルダを選択</button>
-            <button id="preset1Clear" type="button" class="ghost" data-i18n="options.preset.clear">解除</button>
-          </div>
-        </article>
-
-        <article class="preset-card" data-preset-id="preset2">
-          <h3>プリセット2</h3>
-          <label>
-            <span data-i18n="options.preset.nameLabel">表示名</span>
-            <input id="preset2Name" type="text" maxlength="40" placeholder="例: Obsidian Inbox" data-i18n-placeholder="options.preset.namePlaceholder2" spellcheck="false" />
-          </label>
-          <div class="folder-row">
-            <span id="preset2Folder" class="folder-label">未設定（フォルダ未選択）</span>
-            <button id="preset2Grant" type="button" class="grant hidden" data-i18n="options.preset.grant">アクセスを再許可</button>
-            <button id="preset2Pick" type="button" data-i18n="options.preset.pick">フォルダを選択</button>
-            <button id="preset2Clear" type="button" class="ghost" data-i18n="options.preset.clear">解除</button>
-          </div>
-        </article>
-
-        <article class="preset-card" data-preset-id="preset3">
-          <h3>プリセット3</h3>
-          <label>
-            <span data-i18n="options.preset.nameLabel">表示名</span>
-            <input id="preset3Name" type="text" maxlength="40" placeholder="例: 公開記事" data-i18n-placeholder="options.preset.namePlaceholder3" spellcheck="false" />
-          </label>
-          <div class="folder-row">
-            <span id="preset3Folder" class="folder-label">未設定（フォルダ未選択）</span>
-            <button id="preset3Grant" type="button" class="grant hidden" data-i18n="options.preset.grant">アクセスを再許可</button>
-            <button id="preset3Pick" type="button" data-i18n="options.preset.pick">フォルダを選択</button>
-            <button id="preset3Clear" type="button" class="ghost" data-i18n="options.preset.clear">解除</button>
-          </div>
-        </article>
-      </div>
+      <!-- カードは options.js が PRESET_IDS から生成する -->
+      <div class="preset-list"></div>
     </section>
 
     <section class="settings-section" aria-labelledby="imageImportSectionTitle">

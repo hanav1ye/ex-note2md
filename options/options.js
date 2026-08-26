@@ -1,7 +1,9 @@
 // オプション画面: 表示言語・保存先プリセット（最大3つ）・タグ候補・設定の入出力の管理
 const t = (key, params) => NtmI18n.t(key, params);
 
-const PRESET_IDS = ["preset1", "preset2", "preset3"];
+/** 保存先プリセットの数。ここを変えれば UI と保存形式が追従する。 */
+const PRESET_COUNT = 5;
+const PRESET_IDS = Array.from({ length: PRESET_COUNT }, (_, index) => `preset${index + 1}`);
 // 1.0.0 までは既定の表示名を日本語のまま保存していた。表示だけロケールに追従させる。
 const LEGACY_DEFAULT_PRESET_NAMES = ["プリセット1", "プリセット2", "プリセット3"];
 const IMAGE_IMPORT_MODES = ["url", "download", "base64"];
@@ -27,6 +29,7 @@ const TRANSFER_FILE_TYPE = "ex-note2md-settings";
 const TRANSFER_FILE_VERSION = 1;
 
 const $ = (id) => document.getElementById(id);
+const presetListEl = document.querySelector(".preset-list");
 const languageSelectEl = $("languageSelect");
 const languageStatusEl = $("languageStatus");
 const tagStatusEl = $("tagStatus");
@@ -96,14 +99,18 @@ const STATUS_TARGETS = {
   transfer: "transfer",
 };
 
-const DEFAULT_PRESET_CONFIGS = {
-  preset1: { name: "", folderLabel: "", hasFolder: false },
-  preset2: { name: "", folderLabel: "", hasFolder: false },
-  preset3: { name: "", folderLabel: "", hasFolder: false },
-};
+/**
+ * 未設定状態のプリセット設定を作る。
+ * 使い回すと個々の設定を書き換えたときに既定値まで汚染されるため、毎回作り直す。
+ * @returns {Record<string, {name: string, folderLabel: string, hasFolder: boolean}>} 既定設定。
+ */
+const createDefaultPresetConfigs = () =>
+  Object.fromEntries(
+    PRESET_IDS.map((id) => [id, { name: "", folderLabel: "", hasFolder: false }])
+  );
 const DEFAULT_IMAGE_FOLDER_CONFIG = { folderLabel: "", hasFolder: false };
 
-let presetConfigs = { ...DEFAULT_PRESET_CONFIGS };
+let presetConfigs = createDefaultPresetConfigs();
 let presetTagCandidates = [];
 let presetTagSets = [];
 let editingTagSetId = "";
@@ -196,13 +203,10 @@ const sanitizePresetConfig = (config) => ({
 /**
  * プリセット設定全体を正規化する。
  * @param {any} configs - 生設定。
- * @returns {{preset1: object, preset2: object, preset3: object}} 正規化済み設定群。
+ * @returns {Record<string, object>} 正規化済み設定群。
  */
-const sanitizePresetConfigs = (configs) => ({
-  preset1: sanitizePresetConfig(configs?.preset1),
-  preset2: sanitizePresetConfig(configs?.preset2),
-  preset3: sanitizePresetConfig(configs?.preset3),
-});
+const sanitizePresetConfigs = (configs) =>
+  Object.fromEntries(PRESET_IDS.map((id) => [id, sanitizePresetConfig(configs?.[id])]));
 
 /**
  * UI表示用のプリセット名を返す。
@@ -1250,6 +1254,69 @@ const consumePendingLikeCountRun = async () => {
   await runLikeCountUpdate({ canRequestPermission: false });
 };
 
+/* ---------------------------- プリセット欄の生成 ---------------------------- */
+
+/**
+ * 保存先プリセットのカードを PRESET_IDS から組み立てる。
+ * 件数を変えても HTML を書き足さずに済むよう、静的な記述ではなくここで生成する。
+ * ID の付け方（preset1Name など）は従来のまま保つ。
+ */
+const buildPresetCards = () => {
+  if (!presetListEl) {
+    return;
+  }
+
+  presetListEl.innerHTML = "";
+  PRESET_IDS.forEach((id, index) => {
+    const card = document.createElement("article");
+    card.className = "preset-card";
+    card.dataset.presetId = id;
+
+    const title = document.createElement("h3");
+
+    const nameLabel = document.createElement("label");
+    const nameLabelText = document.createElement("span");
+    nameLabelText.dataset.i18n = "options.preset.nameLabel";
+    const nameInput = document.createElement("input");
+    nameInput.id = `${id}Name`;
+    nameInput.type = "text";
+    nameInput.maxLength = 40;
+    nameInput.spellcheck = false;
+    // 例示は 1〜3 のみ用意し、それ以降は共通の例を使う。
+    nameInput.dataset.i18nPlaceholder =
+      index < 3 ? `options.preset.namePlaceholder${index + 1}` : "options.preset.namePlaceholder";
+    nameLabel.append(nameLabelText, nameInput);
+
+    const folderRow = document.createElement("div");
+    folderRow.className = "folder-row";
+
+    const folderLabel = document.createElement("span");
+    folderLabel.id = `${id}Folder`;
+    folderLabel.className = "folder-label";
+
+    const grantBtn = document.createElement("button");
+    grantBtn.id = `${id}Grant`;
+    grantBtn.type = "button";
+    grantBtn.className = "grant hidden";
+    grantBtn.dataset.i18n = "options.preset.grant";
+
+    const pickBtn = document.createElement("button");
+    pickBtn.id = `${id}Pick`;
+    pickBtn.type = "button";
+    pickBtn.dataset.i18n = "options.preset.pick";
+
+    const clearBtn = document.createElement("button");
+    clearBtn.id = `${id}Clear`;
+    clearBtn.type = "button";
+    clearBtn.className = "ghost";
+    clearBtn.dataset.i18n = "options.preset.clear";
+
+    folderRow.append(folderLabel, grantBtn, pickBtn, clearBtn);
+    card.append(title, nameLabel, folderRow);
+    presetListEl.appendChild(card);
+  });
+};
+
 /* -------------------------------- 描画処理 -------------------------------- */
 
 /**
@@ -1433,10 +1500,12 @@ const persistConfigs = async () => {
 /** 保存済み設定を読み込み、stateとUIを初期化する。 */
 const loadConfigs = async () => {
   await NtmI18n.init();
+  // 生成したカードにも文言が入るよう、組み立ててから適用する。
+  buildPresetCards();
   NtmI18n.applyDom(document);
 
   const stored = await chrome.storage.local.get(STORAGE_KEYS);
-  presetConfigs = sanitizePresetConfigs(stored.presetConfigs ?? DEFAULT_PRESET_CONFIGS);
+  presetConfigs = sanitizePresetConfigs(stored.presetConfigs);
   // 旧バージョンが保存した既定名は「未設定」とみなし、表示言語に追従させる。
   PRESET_IDS.forEach((id, index) => {
     if (presetConfigs[id].name === LEGACY_DEFAULT_PRESET_NAMES[index]) {

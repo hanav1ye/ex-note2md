@@ -55,7 +55,9 @@ const SAMPLE_STORAGE = {
   presetConfigs: {
     preset1: { name: "仕事メモ", folderLabel: "work-notes", hasFolder: true },
     preset2: { name: "Obsidian Inbox", folderLabel: "obsidian-inbox", hasFolder: true },
-    preset3: { name: "公開記事", folderLabel: "", hasFolder: false },
+    preset3: { name: "公開記事", folderLabel: "note-public", hasFolder: true },
+    preset4: { name: "下書き置き場", folderLabel: "", hasFolder: false },
+    preset5: { name: "", folderLabel: "", hasFolder: false },
   },
   presetTagCandidates: ["エンジニア", "学習メモ", "技術検証", "日記", "気づき", "読書メモ"],
   presetTagSets: [
@@ -269,15 +271,16 @@ const SHOTS = [
   {
     name: "02-options-presets",
     page: "options",
-    // プリセット3件が収まるよう余白を詰める（文字は読める大きさを保つ）
+    // プリセット5件が収まるよう余白と倍率を詰める。
+    // 撮影は描画倍率2倍なので、CSS上で小さくしても出力は潰れない。
     extraStyle: `${onlySections(["presetSectionTitle"])}
-      .preset-card { padding: 10px 12px; }
-      .preset-card h3 { margin-bottom: 4px; }
-      .preset-card label { margin-bottom: 4px; }
-      .preset-card input[type="text"] { padding: 5px 8px; }
-      .preset-list { gap: 8px; }
+      .preset-card { padding: 7px 10px; }
+      .preset-card h3 { margin-bottom: 2px; font-size: 14px; }
+      .preset-card label { margin-bottom: 2px; }
+      .preset-card input[type="text"] { padding: 4px 8px; }
+      .preset-list { gap: 6px; }
       .settings-section > .hint.inline { display: none; }
-      .container { transform: scale(0.88); transform-origin: top center; }`,
+      .container { padding-top: 8px; transform: scale(0.56); transform-origin: top center; }`,
   },
   {
     name: "03-options-image",
