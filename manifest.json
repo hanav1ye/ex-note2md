@@ -4,9 +4,17 @@
   "version": "1.0.1",
   "description": "__MSG_appDescription__",
   "default_locale": "ja",
-  "minimum_chrome_version": "109",
-  "permissions": ["activeTab", "clipboardWrite", "storage"],
-  "host_permissions": ["https://note.com/*", "https://assets.st-note.com/*"],
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "activeTab",
+    "clipboardWrite",
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://note.com/*",
+    "https://assets.st-note.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -20,6 +28,9 @@
     }
   },
   "options_page": "options/options.html",
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -27,8 +38,14 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://note.com/*"],
-      "js": ["lib/i18n.js", "lib/noteToMarkdown.js", "content/content.js"],
+      "matches": [
+        "https://note.com/*"
+      ],
+      "js": [
+        "lib/i18n.js",
+        "lib/noteToMarkdown.js",
+        "content/content.js"
+      ],
       "run_at": "document_idle"
     }
   ]

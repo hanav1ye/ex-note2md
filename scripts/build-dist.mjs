@@ -82,6 +82,7 @@ const referencedFiles = [
   manifest.background?.service_worker,
   manifest.action?.default_popup,
   manifest.options_page,
+  manifest.side_panel?.default_path,
   ...Object.values(manifest.action?.default_icon ?? {}),
   ...Object.values(manifest.icons ?? {}),
   ...(manifest.content_scripts ?? []).flatMap((entry) => [...(entry.js ?? []), ...(entry.css ?? [])]),
@@ -107,11 +108,13 @@ mkdirSync(`${DIST_DIR}/icons`, { recursive: true });
 mkdirSync(`${DIST_DIR}/lib`, { recursive: true });
 mkdirSync(`${DIST_DIR}/options`, { recursive: true });
 mkdirSync(`${DIST_DIR}/popup`, { recursive: true });
+mkdirSync(`${DIST_DIR}/sidepanel`, { recursive: true });
 
 /** HTML/manifest/画像など、圧縮不要の静的ファイルをコピーする。 */
 cpSync("manifest.json", `${DIST_DIR}/manifest.json`);
 cpSync("popup/popup.html", `${DIST_DIR}/popup/popup.html`);
 cpSync("options/options.html", `${DIST_DIR}/options/options.html`);
+cpSync("sidepanel/sidepanel.html", `${DIST_DIR}/sidepanel/sidepanel.html`);
 cpSync("icons", `${DIST_DIR}/icons`, { recursive: true });
 cpSync("_locales", `${DIST_DIR}/_locales`, { recursive: true });
 
@@ -121,10 +124,11 @@ run('npx --no-install terser "content/content.js" -c -m -o "dist/content/content
 run('npx --no-install terser "lib/i18n.js" -c -m -o "dist/lib/i18n.js"');
 run('npx --no-install terser "lib/likeCount.js" -c -m -o "dist/lib/likeCount.js"');
 run('npx --no-install terser "lib/noteToMarkdown.js" -c -m -o "dist/lib/noteToMarkdown.js"');
-run('npx --no-install terser "popup/popup.js" -c -m -o "dist/popup/popup.js"');
+run('npx --no-install terser "lib/convertPanel.js" -c -m -o "dist/lib/convertPanel.js"');
 run('npx --no-install terser "options/options.js" -c -m -o "dist/options/options.js"');
 run('npx --no-install clean-css-cli -o "dist/popup/popup.css" "popup/popup.css"');
 run('npx --no-install clean-css-cli -o "dist/options/options.css" "options/options.css"');
+run('npx --no-install clean-css-cli -o "dist/sidepanel/sidepanel.css" "sidepanel/sidepanel.css"');
 
 /** 出力漏れがないことを確認する。 */
 const expectedOutputs = [
@@ -137,11 +141,13 @@ const expectedOutputs = [
   "_locales/ja/messages.json",
   "_locales/en/messages.json",
   "popup/popup.html",
-  "popup/popup.js",
+  "lib/convertPanel.js",
   "popup/popup.css",
   "options/options.html",
   "options/options.js",
   "options/options.css",
+  "sidepanel/sidepanel.html",
+  "sidepanel/sidepanel.css",
   "icons/icon16.png",
   "icons/icon48.png",
   "icons/icon128.png",

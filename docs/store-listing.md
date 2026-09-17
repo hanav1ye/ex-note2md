@@ -30,12 +30,13 @@ note.com の記事を Markdown 形式に変換する拡張機能です。Obsidia
 ■ できること
 ・開いている note 記事、または記事URLの指定から Markdown を生成
 ・変換結果をクリップボードへコピー、または指定フォルダへ .md として保存
-・保存先フォルダを最大3つプリセット登録
+・保存先フォルダを最大5つプリセット登録
 ・note ページ上の記事リンクを選んで変換（単体 / 複数まとめて）
 ・タグを frontmatter に付与。よく使う組み合わせはタグセットとして登録可能
 ・指定ワードを [[単語]] 形式に変換する Obsidian 向けリンク化
 ・UI の日本語 / 英語切り替え（既定はブラウザの表示言語に追従）
 ・タグと Obsidian 設定を JSON ファイルでエクスポート / インポート
+・同じ画面をサイドパネルに常設。タブを移動しても閉じません
 
 ■ 変換に対応している要素
 見出し / 段落・改行 / 太字 / リンク / 画像・キャプション / 引用 / コードブロック・インラインコード / 箇条書き・番号付きリスト / 水平線
@@ -48,7 +49,7 @@ frontmatter にはタイトル・URL・note ID・著者・公開日・スキ数�
 
 ■ ご利用にあたって
 ・ダウンロード機能を使うには、オプション画面で保存先フォルダの設定が必要です
-・File System Access API を使用するため、デスクトップ版 Chrome / Edge（Chrome 109以降）でのみ動作します
+・File System Access API と Side Panel API を使用するため、デスクトップ版 Chrome / Edge（Chrome 116以降）でのみ動作します
 ・データの収集・外部送信は一切ありません。設定はすべて端末内に保存されます
 
 ■ ご注意
@@ -71,6 +72,7 @@ note.com の記事を Markdown 形式に変換し、クリップボードへコ�
 | `activeTab` | （下の「activeTab の説明」を参照。欄が短い場合は「ユーザーが拡張機能アイコンをクリックしたときに限り、アクティブなタブのURLとタイトルを読み取り、note 記事ページかの判定・対象タイトルの表示・変換要求の送信に使用します。」） |
 | `clipboardWrite` | 変換した Markdown をユーザーのクリップボードへコピーするために使用します。 |
 | `storage` | 変換設定（変換元・変換後の選択、タグ候補、タグセット、保存先プリセット名、画像取込方式、Obsidian連携の設定、表示言語）を端末内に保存するために使用します。外部への送信は行いません。 |
+| `sidePanel` | 変換画面をブラウザのサイドパネルに表示するために使用します。popup と同じ画面をページ操作中も開いたままにするための UI 用途で、データへのアクセスは伴いません。 |
 | `https://note.com/*` のホスト権限 | 変換対象として指定された note 記事のHTMLを取得し、本文を Markdown に変換するために使用します。 |
 | `https://assets.st-note.com/*` のホスト権限 | 画像取込方式で「画像ダウンロード」または「Base64埋込」が選択されている場合に、記事内の画像を取得するために使用します。note の画像配信ドメインです。 |
 
@@ -115,11 +117,14 @@ externally. All processing happens locally on the user's device.
 
 | 用途 | 実装 |
 |------|------|
-| 記事ページ判定 | `popup/popup.js` の `resolveConvertTarget`（`tab.url` を `isNoteArticleUrl` で検査） |
-| 対象タイトルの表示 | `popup/popup.js` の `updateCurrentTabArticleTitle`（content script へ問い合わせ、失敗時は `tab.title` にフォールバック） |
-| 変換要求の送信 | `popup/popup.js` の `convertCurrentTab` / `startLinkPickMode` / `startMultiPickMode` |
+| 記事ページ判定 | `lib/convertPanel.js` の `resolveConvertTarget`（`tab.url` を `isNoteArticleUrl` で検査） |
+| 対象タイトルの表示 | `lib/convertPanel.js` の `updateCurrentTabArticleTitle`（content script へ問い合わせ、失敗時は `tab.title` にフォールバック） |
+| 変換要求の送信 | `lib/convertPanel.js` の `convertCurrentTab` / `startLinkPickMode` / `startMultiPickMode` |
 
-いずれも popup の操作が起点であり、バックグラウンドでタブを監視する経路は存在しない。
+いずれも popup またはサイドパネルの操作が起点であり、バックグラウンドでタブを監視する経路は存在しない。
+サイドパネルは開いたまま別のタブへ移れるため `tabs.onActivated` / `tabs.onUpdated` を購読するが、
+用途は上記 2 の「対象タイトルの表示」を取り直すことだけで、note.com 以外のタブでは URL を読めない
+（`activeTab` はタブを跨いで引き継がれず、ホスト権限は note.com に限られる）。
 
 ## データ使用の申告
 

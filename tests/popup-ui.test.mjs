@@ -23,7 +23,7 @@ const loadPopup = async (initialStore = {}, options = {}) => {
   win.chrome = chrome;
   win.eval(readSource("lib", "i18n.js"));
   win.eval(readSource("lib", "noteToMarkdown.js"));
-  win.eval(readSource("popup", "popup.js"));
+  win.eval(readSource("lib", "convertPanel.js"));
   await flush(40);
   return { win, doc: win.document, store };
 };
@@ -304,4 +304,138 @@ test("タグ欄を「変換後」の下に置く", async () => {
   const { doc } = await loadPopup();
   const titles = [...doc.querySelectorAll(".option-group-title")].map((el) => el.id);
   assert.deepEqual(titles, ["sourceModeLabel", "outputModeLabel", "tagSelectorLabel"]);
+});
+
+/* ------------------------------ サイドパネル ------------------------------ */
+
+/**
+ * サイドパネルを読み込む。popup と同じ共有 JS（lib/convertPanel.js）を使う。
+ * @param {object} [initialStore={}] - chrome.storage.local の初期値。
+ * @param {{uiLanguage?: string}} [options={}] - ブラウザ側の設定。
+ * @returns {Promise<{win: import("jsdom").DOMWindow, doc: Document, store: object}>} テスト環境。
+ */
+const loadSidePanel = async (initialStore = {}, options = {}) => {
+  const dom = new JSDOM(readSource("sidepanel", "sidepanel.html"), {
+    runScripts: "outside-only",
+    url: "https://example.org/",
+  });
+  const win = dom.window;
+  const { chrome, store } = createChromeStub(initialStore, options);
+  win.chrome = chrome;
+  win.eval(readSource("lib", "i18n.js"));
+  win.eval(readSource("lib", "noteToMarkdown.js"));
+  win.eval(readSource("lib", "convertPanel.js"));
+  await flush(40);
+  return { win, doc: win.document, store };
+};
+
+test("popup の「サイドバーで開く」でサイドパネルを開いて popup を閉じる", async () => {
+  const { win, doc } = await loadPopup();
+  let closed = false;
+  win.close = () => {
+    closed = true;
+  };
+
+  click(win, doc.getElementById("openSidePanelBtn"));
+  await flush(40);
+
+  assert.equal(win.chrome.sidePanel.__opened.length, 1);
+  assert.equal(win.chrome.sidePanel.__opened[0].windowId, -2, "現在のウィンドウで開いていません");
+  assert.equal(closed, true, "開いた後に popup を閉じていません");
+});
+
+test("サイドパネルを開けなければエラーを表示して popup は閉じない", async () => {
+  const { win, doc } = await loadPopup();
+  win.chrome.sidePanel.open = async () => {
+    throw new Error("nope");
+  };
+  let closed = false;
+  win.close = () => {
+    closed = true;
+  };
+
+  click(win, doc.getElementById("openSidePanelBtn"));
+  await flush(40);
+
+  assert.equal(closed, false);
+  assert.match(doc.getElementById("status").textContent, /サイドバーを開けませんでした/);
+});
+
+test("サイドパネルでも popup と同じ機能が使える", async () => {
+  const { win, doc, store } = await loadSidePanel({ ...TAG_STORE, ...PRESET_STORE });
+
+  // タグセットの一括適用
+  const select = doc.getElementById("tagSetSelect");
+  select.value = "set-1";
+  change(win, select);
+  await flush();
+  assert.deepEqual(checkedTags(doc), ["学習メモ", "技術検証"]);
+
+  // 保存先プリセットの表示
+  assert.match(
+    doc.getElementById("downloadPreset").querySelector('option[value="preset1"]').textContent,
+    /仕事メモ \(Work\)/
+  );
+  assert.equal(store.tags.length, 2);
+
+  // 「サイドバーで開く」は popup 専用なので出さない
+  assert.equal(doc.getElementById("openSidePanelBtn"), null);
+});
+
+test("サイドパネルはアクティブなタブの変化に追従する", async () => {
+  const { win, doc } = await loadSidePanel();
+  const listeners = win.chrome.tabs.__onActivated;
+  assert.equal(listeners.length, 1, "onActivated を購読していません");
+  assert.equal(win.chrome.tabs.__onUpdated.length, 1, "onUpdated を購読していません");
+
+  // 別の記事タブへ移った状況を再現する
+  win.chrome.tabs.query = async () => [{ id: 2, url: "https://note.com/hanaviye/n/nxyz789", title: "別の記事｜花冷" }];
+  win.chrome.tabs.sendMessage = async () => ({ ok: true, title: "別の記事" });
+  listeners.forEach((fn) => fn({ tabId: 2, windowId: 1 }));
+  await flush(40);
+
+  assert.equal(doc.getElementById("tabArticleTitle").textContent, "別の記事");
+});
+
+test("サイドパネルは読み込み途中のタブ更新では取り直さない", async () => {
+  const { win } = await loadSidePanel();
+  let queries = 0;
+  win.chrome.tabs.query = async () => {
+    queries += 1;
+    return [{ id: 1, url: "https://note.com/hanaviye/n/nabc123", title: "t" }];
+  };
+
+  win.chrome.tabs.__onUpdated.forEach((fn) => fn(1, { status: "loading" }, { active: true }));
+  win.chrome.tabs.__onUpdated.forEach((fn) => fn(1, { status: "complete" }, { active: false }));
+  await flush(40);
+  assert.equal(queries, 0, "不要なタイミングで取り直しています");
+
+  win.chrome.tabs.__onUpdated.forEach((fn) => fn(1, { status: "complete" }, { active: true }));
+  await flush(40);
+  assert.equal(queries, 1);
+});
+
+test("popup はタブの変化を購読しない", async () => {
+  const { win } = await loadPopup();
+  assert.equal(win.chrome.tabs.__onActivated.length, 0);
+  assert.equal(win.chrome.tabs.__onUpdated.length, 0);
+});
+
+test("サイドパネルのスキ数更新ボタンは自分を閉じない", async () => {
+  const { win, doc, store } = await loadSidePanel();
+  let closed = false;
+  win.close = () => {
+    closed = true;
+  };
+  let opened = false;
+  win.chrome.runtime.openOptionsPage = () => {
+    opened = true;
+  };
+
+  click(win, doc.getElementById("likeCountBtn"));
+  await flush(40);
+
+  assert.equal(store.pendingLikeCountRun, true);
+  assert.equal(opened, true);
+  assert.equal(closed, false, "サイドパネルは閉じられないので close を呼ぶべきではありません");
 });

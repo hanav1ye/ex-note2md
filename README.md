@@ -5,7 +5,7 @@
 
 > **本拡張機能は note株式会社とは関係のない非公式ツールです。**  
 > 変換したコンテンツの利用は、note の利用規約および著作権法の範囲内で行ってください。  
-> 保存先フォルダの指定に File System Access API を使うため、**デスクトップ版 Chrome / Edge（Chrome 109 以降）専用**です。  
+> 保存先フォルダの指定に File System Access API、常設表示に Side Panel API を使うため、**デスクトップ版 Chrome / Edge（Chrome 116 以降）専用**です。  
 > 変換・設定データは端末内（`chrome.storage.local` / IndexedDB）にのみ保存され、外部へ送信されることはありません。
 
 ## できること
@@ -23,6 +23,7 @@
 - UI の **日本語 / 英語** 切り替え（既定はブラウザの表示言語に追従）
 - タグ・Obsidian 設定の **JSON エクスポート / インポート**
 - 保存済み `.md` の **スキ数（`like_count`）を note の最新値へ一括更新**
+- popup と同じ画面を **サイドパネルに常設**（タブを移動しても閉じない）
 
 ## Markdown 変換の対応範囲
 
@@ -56,6 +57,17 @@
 5. `変換` を実行
 
 画像取込方式（note URL参照 / 画像ダウンロード / Base64埋込）は **オプション画面** で設定します。
+
+### サイドパネルで常設する
+
+popup 右上の「サイドバーで開く」（左端のアイコン）を押すと、同じ画面がブラウザのサイドパネルに開きます。
+
+- popup と違い、**ページをクリックしても閉じません**。記事を開くたびに拡張機能を起動し直す必要がなくなります
+- **タブを移動すると「処理対象」が自動で追従**します。別の note 記事タブへ移れば、そのタブのタイトルに切り替わります
+- できることは popup と同じです（変換元 / 変換後 / タグ / 選択モードの開始）。中身は同じ `lib/convertPanel.js` を共有しています
+- 閉じるのはサイドパネル側の「×」からです（拡張機能から閉じることはできません）
+
+popup は残っているので、従来どおりアイコンをクリックして使うこともできます。
 
 ### ダウンロード（重要）
 
@@ -205,6 +217,7 @@ File System Access API で選択した保存先フォルダのハンドルを保
 | `activeTab` | 開いている note 記事タブの DOM 変換 |
 | `clipboardWrite` | Markdown のクリップボードコピー |
 | `storage` | 設定保存（`chrome.storage.local`） |
+| `sidePanel` | 変換画面をブラウザのサイドパネルに表示する |
 | `https://note.com/*` | 記事ページの読み取り、URL 指定時の HTML 取得 |
 | `https://assets.st-note.com/*` | 画像ダウンロード・Base64 変換時の画像取得 |
 
@@ -215,9 +228,11 @@ File System Access API で選択した保存先フォルダのハンドルを保
 | `lib/noteToMarkdown.js` | note DOM → Markdown 変換 |
 | `lib/i18n.js` | UI 文言カタログ（日本語 / 英語）と表示言語の解決 |
 | `lib/likeCount.js` | frontmatter の like_count 更新と .md フォルダ走査 |
+| `lib/convertPanel.js` | 変換画面のロジック（popup とサイドパネルで共有） |
 | `content/content.js` | 記事ページでの変換 API、リンク選択・一括処理 |
 | `background.js` | 保存処理・ファイル存在チェック |
-| `popup/` | 変換 UI |
+| `popup/` | 変換 UI（アイコンクリックで開く） |
+| `sidepanel/` | 変換 UI（サイドパネルに常設。popup と同じ中身） |
 | `options/` | 表示言語 / 保存先プリセット / タグ候補 / タグセットプリセット / Obsidian 設定 / スキ数更新 / 設定の入出力 |
 | `_locales/` | manifest の拡張機能名・説明のローカライズ |
 | `manifest.json` | Manifest V3 定義 |

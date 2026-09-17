@@ -169,6 +169,26 @@ export const createChromeStub = (initialStore = {}, { uiLanguage = "ja" } = {}) 
     tabs: {
       query: async () => [{ id: 1, url: ARTICLE_URL, title: "テスト記事｜花冷" }],
       sendMessage: async () => ({ ok: true, title: "テスト記事" }),
+      // サイドパネルのタブ追従用。登録されたリスナーをテストから発火できるようにする。
+      onActivated: {
+        addListener: (fn) => {
+          chrome.tabs.__onActivated.push(fn);
+        },
+      },
+      onUpdated: {
+        addListener: (fn) => {
+          chrome.tabs.__onUpdated.push(fn);
+        },
+      },
+      __onActivated: [],
+      __onUpdated: [],
+    },
+    windows: { WINDOW_ID_CURRENT: -2 },
+    sidePanel: {
+      open: async (options) => {
+        chrome.sidePanel.__opened.push(options);
+      },
+      __opened: [],
     },
   };
   return { chrome, store, messages };

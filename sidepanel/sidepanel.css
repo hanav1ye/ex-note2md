@@ -1,0 +1,7 @@
+/* サイドパネル向けの上書き。基本のスタイルは popup.css を共有する。 */
+body {
+  /* popup は固定幅だが、サイドパネルは枠の幅に合わせて伸縮させる */
+  width: auto;
+  min-width: 280px;
+  min-height: 100vh;
+}
