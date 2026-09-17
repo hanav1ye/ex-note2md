@@ -204,6 +204,7 @@ popup のボタンは**入口だけ**で、実処理はオプション画面で�
 | `presetObsidianLinkWords` | Obsidian リンク化ワード一覧 |
 | `obsidianLinkify` | Obsidianリンク化 ON/OFF |
 | `uiLanguage` | 表示言語設定（`auto` / `ja` / `en`） |
+| `pendingLikeCountRun` | popup / サイドパネルの「スキ数を更新」を押した印。オプション画面が受け取ると同時に消す一時キー |
 
 ### IndexedDB（`noteToMarkdownPresets`）
 
@@ -238,11 +239,14 @@ File System Access API で選択した保存先フォルダのハンドルを保
 | `manifest.json` | Manifest V3 定義 |
 | `scripts/build-dist.mjs` | 配布用 `dist/` と提出用 zip の生成（検証 + minify） |
 | `scripts/zip-dir.mjs` | 依存なしの ZIP 書き出し（Compress-Archive / GNU tar の罠を避けるため自前実装） |
+| `scripts/make-screenshots.mjs` | ストア掲載用スクリーンショットの生成 |
 | `scripts/make-store-images.mjs` | ストア掲載用プロモーションタイルの生成 |
+| `scripts/update-like-count.mjs` | スキ数更新の CLI 版（拡張機能と同じ判定ルール） |
 | `scripts/update-fixtures.mjs` | テスト用フィクスチャの取得（手動実行） |
 | `scripts/update-golden.mjs` | 期待Markdownの再生成（手動実行） |
 | `tests/` | 自動テスト |
 | `docs/` | ストア掲載文・手動QAチェックリスト |
+| `CHANGELOG.md` | 版ごとの更新履歴 |
 
 ## 開発コマンド
 
@@ -257,6 +261,7 @@ npm install
 | `npm run test:dist` | 同じテストを **minify 済みの `dist/`** に対して実行 |
 | `npm run verify` | lint とテストをまとめて実行 |
 | `npm run build:dist` | 配布用 `dist/` を生成し、提出用の `ex-note2md-{version}.zip` まで作る（lint / test / バージョン整合を検証し、生成後は `dist` に対しても再テスト） |
+| `npm run update-like-count -- <フォルダ>` | 指定フォルダ配下の `.md` の `like_count` を CLI で更新（`--dry-run` / `--force` / `--delay N`） |
 | `npm run update:fixtures` | ゴールデンテスト用の記事フィクスチャを note.com から再取得 |
 | `npm run update:golden` | 期待Markdownを再生成（変換仕様を意図的に変えたときのみ） |
 | `npm run make:screenshots` | ストア掲載用スクリーンショット（1280x800）を `docs/screenshots/` へ生成 |
@@ -277,6 +282,10 @@ npm install
 | `tests/popup-ui.test.mjs` | タグ選択・タグセット適用・保存先プリセット表示・表示言語 |
 
 実ブラウザでしか確認できない項目は [docs/manual-qa.md](docs/manual-qa.md) にまとめています。
+
+## 更新履歴
+
+[CHANGELOG.md](CHANGELOG.md) を参照。
 
 ## ストア公開について
 
