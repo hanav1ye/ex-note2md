@@ -216,7 +216,40 @@ const resolveAnchorFromEvent = (event) => {
 const getAnchorTitle = (anchor) =>
   (anchor.getAttribute("aria-label") ?? anchor.textContent ?? "")
     .replace(/\s+/g, " ")
-    .trim() || t("content.untitled");
+    .trim() ||
+  findCardTitle(anchor) ||
+  t("content.untitled");
+
+/**
+ * リンク自身に文字が無いとき、同じカード内の見出しからタイトルを拾う。
+ *
+ * マガジンページなどの記事カードは、カード全面を覆う空の <a> と、
+ * その隣に置かれた <h3> で作られている。リンクだけ見るとタイトルが取れない。
+ * 祖先を辿って最初に見つかる見出しを使うが、別の記事へのリンクを含む要素まで
+ * 上がったらカードの外なので打ち切る（隣のカードの見出しを拾わないため）。
+ * @param {HTMLAnchorElement} anchor - 対象リンク。
+ * @returns {string} 見出しの文字列。見つからなければ空文字。
+ */
+const findCardTitle = (anchor) => {
+  const href = anchor.getAttribute("href") ?? "";
+  let node = anchor.parentElement;
+  for (let depth = 0; node && depth < 8; depth += 1) {
+    const hasOtherArticleLink = Array.from(node.querySelectorAll("a[href]")).some((link) => {
+      const linkHref = link.getAttribute("href") ?? "";
+      return linkHref !== href && isNoteArticleUrl(linkHref);
+    });
+    if (hasOtherArticleLink) {
+      break;
+    }
+    const heading = node.querySelector("h1, h2, h3, h4");
+    const text = (heading?.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (text) {
+      return text;
+    }
+    node = node.parentElement;
+  }
+  return "";
+};
 
 /**
  * 一覧自動選択から除外するタイトルか判定する。
@@ -227,15 +260,37 @@ const isExcludedListTitle = (title) => title === "プロフィール" || title =
 
 /**
  * note一覧の描画ルート要素を探索する。
- * @returns {Element|null} 一覧ルート要素。
+ *
+ * クリエイターページの一覧コンテナは特定のクラスで見つかるが、
+ * マガジンページにはそのクラスが無い。見つからなければ、ページ上の
+ * 記事リンクすべてを含む最小の要素（共通の祖先）を一覧ルートとみなす。
+ * これでページ構造が違っても、記事リンクが集まっている塊を拾える。
+ * @returns {Element|null} 一覧ルート要素。記事リンクが無ければ null。
  */
-const getArticleListRoot = () =>
-  Array.from(document.querySelectorAll("div")).find(
+const getArticleListRoot = () => {
+  const byClass = Array.from(document.querySelectorAll("div")).find(
     (el) =>
       el.classList.contains("mx-auto") &&
       el.classList.contains("w-full") &&
       el.classList.contains("max-w-[var(--size-content)]")
-  ) ?? null;
+  );
+  if (byClass) {
+    return byClass;
+  }
+
+  const articleAnchors = Array.from(document.querySelectorAll("a[href]")).filter((anchor) =>
+    isNoteArticleUrl(anchor.getAttribute("href") ?? "")
+  );
+  if (articleAnchors.length === 0) {
+    return null;
+  }
+
+  let common = articleAnchors[0].parentElement;
+  while (common && !articleAnchors.every((anchor) => common.contains(anchor))) {
+    common = common.parentElement;
+  }
+  return common ?? null;
+};
 
 /**
  * 一覧ルート配下から描画済みの記事リンク候補を収集する。

@@ -17,11 +17,11 @@ const PAGE_HTML = `<!doctype html><html><body>
 
 /**
  * content script を読み込んだページ環境を作る。
- * @param {{store?: object}} [options={}] - chrome.storage.local の初期値。
+ * @param {{store?: object, html?: string}} [options={}] - chrome.storage.local の初期値とページHTML。
  * @returns {{win: import("jsdom").DOMWindow, send: Function, downloads: string[]}} テスト環境。
  */
-const loadContentScript = ({ store = {} } = {}) => {
-  const dom = new JSDOM(PAGE_HTML, {
+const loadContentScript = ({ store = {}, html = PAGE_HTML } = {}) => {
+  const dom = new JSDOM(html, {
     url: "https://note.com/hanaviye",
     runScripts: "outside-only",
     pretendToBeVisual: true,
@@ -408,4 +408,98 @@ test("記事ページ以外でのタイトル取得はエラーを返す", async
   const response = await send({ type: "getArticleTitle" });
   assert.equal(response.ok, false);
   assert.match(response.error, /記事ページ/);
+});
+
+/* ------------------------------ マガジンページ ------------------------------ */
+
+/**
+ * マガジンページの実際の構造を模したHTML。
+ * 記事カードは「カード全面を覆う空の <a>」と「隣の <h3>」で作られ、
+ * クリエイターページの一覧コンテナ（mx-auto w-full …）は存在しない。
+ * 1枚のカードに同じ記事へのリンクが2本ある点も実物どおり。
+ */
+const MAGAZINE_HTML = `<!doctype html><html><body>
+<header><a href="/csfive">クリエイター</a></header>
+<main>
+  <div class="grid grid-cols-1 md:grid-cols-3">
+    <div class="card">
+      <a class="absolute inset-0" href="/csfive/n/naaa111"></a>
+      <div class="thumb"><a class="absolute inset-0" href="/csfive/n/naaa111"></a></div>
+      <h3>Obsidian を始める前に読む話</h3>
+      <p>本文の抜粋</p>
+    </div>
+    <div class="card">
+      <a class="absolute inset-0" href="/csfive/n/nbbb222"></a>
+      <h3>デイリーノートの運用</h3>
+    </div>
+    <div class="card">
+      <a class="absolute inset-0" href="/csfive/n/nccc333"></a>
+      <h3>プロフィール</h3>
+    </div>
+  </div>
+</main>
+</body></html>`;
+
+test("マガジンページでは空のカードリンクからでも見出しをタイトルにする", async () => {
+  const { win, send } = loadContentScript({ html: MAGAZINE_HTML });
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+
+  clickLink(win, "/csfive/n/naaa111");
+  clickLink(win, "/csfive/n/nbbb222");
+  await flush();
+
+  const items = [...shadowOf(win).querySelectorAll(".panel-list div")].map((el) => el.textContent);
+  assert.deepEqual(items, ["1. Obsidian を始める前に読む話", "2. デイリーノートの運用"]);
+  assert.ok(!items.some((text) => text.includes("タイトル不明")), "タイトルが解決できていません");
+});
+
+test("マガジンページでも一覧を全選択できる", async () => {
+  const { win, send } = loadContentScript({ html: MAGAZINE_HTML });
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+
+  shadowOf(win)
+    .querySelector('[data-role="select-visible"]')
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await flush();
+
+  const items = [...shadowOf(win).querySelectorAll(".panel-list div")].map((el) => el.textContent);
+  // 同じ記事への2本目のリンクで重複せず、プロフィールは除外される
+  assert.deepEqual(items, ["1. Obsidian を始める前に読む話", "2. デイリーノートの運用"]);
+  assert.equal(shadowOf(win).querySelector(".panel-count").textContent, "選択中: 2件");
+});
+
+test("隣のカードの見出しを拾わない", async () => {
+  // 1枚目のカードに見出しが無い場合、共通の親まで上がって2枚目の見出しを取ってはいけない
+  const html = `<!doctype html><html><body><div class="grid">
+    <div class="card"><a href="/csfive/n/naaa111"></a></div>
+    <div class="card"><a href="/csfive/n/nbbb222"></a><h3>二枚目の見出し</h3></div>
+  </div></body></html>`;
+  const { win, send } = loadContentScript({ html });
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+
+  clickLink(win, "/csfive/n/naaa111");
+  await flush();
+
+  const items = [...shadowOf(win).querySelectorAll(".panel-list div")].map((el) => el.textContent);
+  assert.deepEqual(items, ["1. （タイトル不明）"]);
+});
+
+test("クリエイターページの一覧コンテナは従来どおり優先する", async () => {
+  // 従来のコンテナがあるページで、その外にある記事リンクを全選択に含めない
+  const html = `<!doctype html><html><body>
+    <aside><a href="/hanaviye/n/n999">おすすめ記事</a></aside>
+    <div class="mx-auto w-full max-w-[var(--size-content)]">
+      <a href="/hanaviye/n/n111">記事1</a>
+    </div>
+  </body></html>`;
+  const { win, send } = loadContentScript({ html });
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+
+  shadowOf(win)
+    .querySelector('[data-role="select-visible"]')
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await flush();
+
+  const items = [...shadowOf(win).querySelectorAll(".panel-list div")].map((el) => el.textContent);
+  assert.deepEqual(items, ["1. 記事1"]);
 });
