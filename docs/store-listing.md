@@ -95,6 +95,31 @@ note.com の記事を Markdown 形式に変換し、クリップボードへコ�
 
 リモートコードの使用: **なし**（すべてのコードは拡張機能パッケージに同梱、外部スクリプトの読み込みなし）
 
+### sidePanel の説明
+
+「プライバシーへの取り組み」タブの justification 欄にそのまま貼る。
+
+```
+sidePanel 権限は、拡張機能自身の変換画面（ポップアップと同じ画面）をブラウザのサイドパネルに表示するためだけに使用します。
+
+ポップアップはページをクリックすると閉じてしまうため、note.com の記事を読みながら変換したり、複数の記事タブを行き来しながら操作したりする際に、毎回アイコンをクリックし直す必要がありました。サイドパネルに表示することで、同じ画面を開いたまま作業できるようにしています。
+
+この権限は画面の表示位置に関するものであり、データへのアクセスは一切伴いません。サイドパネルからウェブページの内容を読み取ることはなく、新たなホスト権限も要求しません。サイドパネルはユーザーがポップアップ内のボタンを押したときにのみ開き、自動で開くことはありません。収集・送信するデータはありません。
+```
+
+英語で求められた場合:
+
+```
+The sidePanel permission is used solely to display the extension's own conversion UI (the same screen as the popup) in the browser's side panel.
+
+The popup closes as soon as the user clicks the page, so converting while reading a note.com article, or working across several article tabs, required reopening the extension every time. Showing the same screen in the side panel lets it stay open while the user works.
+
+This permission only affects where the UI is displayed and involves no data access. The side panel does not read web page content and does not request any additional host permissions. It opens only when the user presses a button inside the popup, never automatically. No data is collected or transmitted.
+```
+
+実装上の対応箇所: `lib/convertPanel.js` の `openSidePanelBtn` のクリックで `chrome.sidePanel.open()` を呼ぶ経路のみ。
+`setPanelBehavior` は使っておらず、アイコンクリックでは従来どおりポップアップが開く。
+
 ### activeTab の説明
 
 justification 欄にそのまま貼る。
