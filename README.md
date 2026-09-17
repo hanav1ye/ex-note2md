@@ -236,7 +236,8 @@ File System Access API で選択した保存先フォルダのハンドルを保
 | `options/` | 表示言語 / 保存先プリセット / タグ候補 / タグセットプリセット / Obsidian 設定 / スキ数更新 / 設定の入出力 |
 | `_locales/` | manifest の拡張機能名・説明のローカライズ |
 | `manifest.json` | Manifest V3 定義 |
-| `scripts/build-dist.mjs` | 配布用 `dist/` の生成（検証 + minify） |
+| `scripts/build-dist.mjs` | 配布用 `dist/` と提出用 zip の生成（検証 + minify） |
+| `scripts/zip-dir.mjs` | 依存なしの ZIP 書き出し（Compress-Archive / GNU tar の罠を避けるため自前実装） |
 | `scripts/make-store-images.mjs` | ストア掲載用プロモーションタイルの生成 |
 | `scripts/update-fixtures.mjs` | テスト用フィクスチャの取得（手動実行） |
 | `scripts/update-golden.mjs` | 期待Markdownの再生成（手動実行） |
@@ -255,7 +256,7 @@ npm install
 | `npm test` | node:test + jsdom によるテスト（変換・UI・background） |
 | `npm run test:dist` | 同じテストを **minify 済みの `dist/`** に対して実行 |
 | `npm run verify` | lint とテストをまとめて実行 |
-| `npm run build:dist` | 配布用 `dist/` を生成（lint / test / バージョン整合を検証し、生成後は `dist` に対しても再テスト） |
+| `npm run build:dist` | 配布用 `dist/` を生成し、提出用の `ex-note2md-{version}.zip` まで作る（lint / test / バージョン整合を検証し、生成後は `dist` に対しても再テスト） |
 | `npm run update:fixtures` | ゴールデンテスト用の記事フィクスチャを note.com から再取得 |
 | `npm run update:golden` | 期待Markdownを再生成（変換仕様を意図的に変えたときのみ） |
 | `npm run make:screenshots` | ストア掲載用スクリーンショット（1280x800）を `docs/screenshots/` へ生成 |
@@ -281,7 +282,7 @@ npm install
 
 - 掲載文・権限の説明・データ申告の下書き: [docs/store-listing.md](docs/store-listing.md)
 - プライバシーポリシー: [PRIVACY.md](PRIVACY.md)
-- 提出物は **`dist/` を zip 化したもの**（リポジトリのルートではありません）
+- 提出物は `npm run build:dist` が出力する **`ex-note2md-{version}.zip`**（`dist/` の中身をルートに持つ zip。手で zip 化する必要はありません）
 
 ## ベース実装
 

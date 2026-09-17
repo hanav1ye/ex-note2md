@@ -1,7 +1,7 @@
 {
   "name": "ex-note2md",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Build helpers for ex-note2md extension.",
   "scripts": {
     "lint": "eslint .",

@@ -7,6 +7,7 @@
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { zipDirectory } from "./zip-dir.mjs";
 
 const DIST_DIR = "dist";
 const skipVerify = process.argv.includes("--skip-verify");
@@ -178,4 +179,12 @@ if (!skipVerify) {
   run("npm run test:dist");
 }
 
+/**
+ * 提出用の zip をここで作る。dist の中身がそのまま zip のルートになる。
+ * 手作業だと壊れた zip ができやすい（scripts/zip-dir.mjs の冒頭を参照）。
+ */
+const zipPath = `ex-note2md-${manifest.version}.zip`;
+const zipped = zipDirectory(DIST_DIR, zipPath);
+
 console.log(`dist build complete (version ${manifest.version})`);
+console.log(`packaged: ${zipPath} (${zipped.fileCount} files, ${zipped.bytes} bytes)`);

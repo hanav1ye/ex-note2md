@@ -193,7 +193,7 @@ UI を変更したら再生成すること（事前に `npm run build:dist` が�
 ## 提出前チェック
 
 - [ ] `npm run build:dist` が成功する（lint / test も同時に実行される）
-- [ ] `dist/` を zip 化して提出物とする（リポジトリのルートではない）
+- [ ] ビルドが出力した `ex-note2md-{version}.zip` を提出物とする（手で zip 化しない）
 - [ ] `docs/manual-qa.md` の手動チェックを実施
 - [ ] スクリーンショット（`npm run make:screenshots` で 1280x800 を5枚生成）
 - [ ] プロモーションタイル（`npm run make:store-images` で 440x280 と 1400x560 を生成）
