@@ -254,7 +254,7 @@ const downloadMarkdownByPreset = async ({ markdown, articleUrl, downloadPreset }
 /**
  * 画像URLからバイナリを取得する。
  * @param {string} url - 画像URL。
- * @returns {Promise<Uint8Array>} 画像バイナリ。
+ * @returns {Promise<{bytes: Uint8Array, contentType: string}>} 画像バイナリとレスポンスの Content-Type。
  */
 const fetchImageBytes = async (url) => {
   if (!isAllowedImageUrl(url)) {
@@ -264,13 +264,86 @@ const fetchImageBytes = async (url) => {
   if (!response.ok) {
     throw new Error(t("background.imageFetchFailedHttp", { status: response.status }));
   }
-  return new Uint8Array(await response.arrayBuffer());
+  const contentType = String(response.headers?.get?.("content-type") ?? "");
+  return { bytes: new Uint8Array(await response.arrayBuffer()), contentType };
+};
+
+/** Content-Type から拡張子への対応。パラメータ（; charset=...）は除いて照合する。 */
+const IMAGE_EXTENSION_BY_CONTENT_TYPE = new Map([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/jpg", "jpg"],
+  ["image/gif", "gif"],
+  ["image/webp", "webp"],
+  ["image/svg+xml", "svg"],
+  ["image/avif", "avif"],
+]);
+const SUPPORTED_IMAGE_EXTENSIONS = new Set(IMAGE_EXTENSION_BY_CONTENT_TYPE.values());
+
+/**
+ * バイト列の先頭（マジックナンバー）から画像形式を判定する。
+ * CDN が URL の拡張子と違う形式を返す場合や、Content-Type が汎用値の場合に備えて、
+ * 実際の中身を最優先で信用する。
+ * @param {Uint8Array} bytes - 画像バイナリ。
+ * @returns {string} 拡張子。判別できなければ空文字。
+ */
+const sniffImageExtension = (bytes) => {
+  const startsWith = (offset, ...expected) => expected.every((value, index) => bytes[offset + index] === value);
+  const ascii = (offset, length) => String.fromCharCode(...bytes.subarray(offset, offset + length));
+  if (bytes.length < 12) {
+    return "";
+  }
+  if (startsWith(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) {
+    return "png";
+  }
+  if (startsWith(0, 0xff, 0xd8, 0xff)) {
+    return "jpg";
+  }
+  if (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a") {
+    return "gif";
+  }
+  if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+    return "webp";
+  }
+  if (ascii(4, 4) === "ftyp" && /^avi[fs]$/.test(ascii(8, 4))) {
+    return "avif";
+  }
+  // SVG はテキスト。先頭の空白・BOM・XML 宣言・コメントを飛ばして <svg を探す。
+  const head = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, 512)).replace(/^﻿/, "");
+  if (/^\s*(<\?xml[^>]*\?>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE[^>]*>\s*)?<svg[\s>]/i.test(head)) {
+    return "svg";
+  }
+  return "";
+};
+
+/**
+ * 保存する画像の拡張子を決める。
+ * 優先順位は 中身のマジックナンバー → Content-Type → URL 由来の拡張子（要求ファイル名）。
+ * どれでも判別できなければ画像ではないとみなして保存しない。
+ * @param {string} requestedFilename - 変換側が URL から付けた仮のファイル名。
+ * @param {string} contentType - レスポンスの Content-Type。
+ * @param {Uint8Array} bytes - 取得したバイナリ。
+ * @returns {string} 確定したファイル名。
+ */
+const resolveImageFilename = (requestedFilename, contentType, bytes) => {
+  const base = requestedFilename.replace(/\.[^.]+$/, "");
+  const requestedExt = requestedFilename.slice(base.length + 1);
+  const mediaType = contentType.split(";")[0].trim().toLowerCase();
+  const ext =
+    sniffImageExtension(bytes) ||
+    IMAGE_EXTENSION_BY_CONTENT_TYPE.get(mediaType) ||
+    (SUPPORTED_IMAGE_EXTENSIONS.has(requestedExt) ? requestedExt : "");
+  if (!ext) {
+    throw new Error(t("background.imageTypeUnknown"));
+  }
+  return `${base}.${ext}`;
 };
 
 /**
  * 画像ファイル群を note ID フォルダ配下へ保存する。
  * @param {{images: {filename: string, url: string}[], noteId: string}} params - 保存パラメータ。
- * @returns {Promise<{savedCount: number, filenames: string[]}>} 保存結果。
+ * @returns {Promise<{savedCount: number, filenames: string[], results: {url: string, requested: string, filename: string|null}[]}>}
+ *   保存結果。results は要求順で、保存できなかった画像は filename が null。
  */
 const saveImagesForArticle = async ({ images, noteId }) => {
   const rootHandle = await getImageFolderHandle();
@@ -278,24 +351,28 @@ const saveImagesForArticle = async ({ images, noteId }) => {
   const noteFolderHandle = await rootHandle.getDirectoryHandle(noteFolderName, { create: true });
   const filenames = [];
   const failures = [];
+  const results = [];
 
   for (const image of images ?? []) {
-    const filename = sanitizeImageFilename(image?.filename);
+    const requested = sanitizeImageFilename(image?.filename);
     const url = String(image?.url ?? "").trim();
-    if (!filename || !url) {
+    if (!requested || !url) {
       continue;
     }
 
     try {
-      const bytes = await fetchImageBytes(url);
+      const { bytes, contentType } = await fetchImageBytes(url);
+      const filename = resolveImageFilename(requested, contentType, bytes);
       const fileHandle = await noteFolderHandle.getFileHandle(filename, { create: true });
       const writable = await fileHandle.createWritable();
       await writable.write(bytes);
       await writable.close();
       filenames.push(`${noteFolderName}/${filename}`);
+      results.push({ url, requested, filename });
     } catch (error) {
       const reason = error instanceof Error ? error.message : t("common.unknownError");
-      failures.push(`${filename}: ${reason}`);
+      failures.push(`${requested}: ${reason}`);
+      results.push({ url, requested, filename: null });
     }
   }
 
@@ -307,7 +384,7 @@ const saveImagesForArticle = async ({ images, noteId }) => {
     console.warn(`[note→Markdown] ${t("background.imageSavePartialFailure")}`, failures);
   }
 
-  return { savedCount: filenames.length, filenames };
+  return { savedCount: filenames.length, filenames, results };
 };
 
 /**

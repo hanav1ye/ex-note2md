@@ -227,3 +227,107 @@ test("URL参照モードでは何も変換しない", async () => {
   assert.equal(result.markdown, markdown);
   assert.equal([...result.images].length, 0);
 });
+
+test("画像の保存結果で参照先を差し替え、失敗分は元URLへ戻す", () => {
+  const win = createLibWindow();
+  const markdown = "![a](nabc/img1.png)\n![b](nabc/img2.png)\n![c](nabc/img3.jpg)";
+  const result = win.NoteToMarkdown.applyImageSaveResults(
+    markdown,
+    [
+      { url: "https://assets.st-note.com/img/a.png", requested: "img1.png", filename: "img1.webp" },
+      { url: "https://assets.st-note.com/img/b.png", requested: "img2.png", filename: null },
+      { url: "https://assets.st-note.com/img/c.jpg", requested: "img3.jpg", filename: "img3.jpg" },
+    ],
+    "nabc/"
+  );
+  assert.equal(
+    result,
+    "![a](nabc/img1.webp)\n![b](https://assets.st-note.com/img/b.png)\n![c](nabc/img3.jpg)"
+  );
+});
+
+/* -------------------------------- テーブル -------------------------------- */
+
+test("table を GFM の表へ変換する（1行目を見出し行にする）", () => {
+  const { markdown } = convertArticle(
+    wrapArticle(
+      "<table><thead><tr><th>項目</th><th>値</th></tr></thead><tbody><tr><td>A</td><td><strong>1</strong></td></tr><tr><td>B</td><td>2</td></tr></tbody></table>"
+    )
+  );
+  assert.match(markdown, /^\| 項目 \| 値 \|$/m);
+  assert.match(markdown, /^\| --- \| --- \|$/m);
+  assert.match(markdown, /^\| A \| \*\*1\*\* \|$/m);
+  assert.match(markdown, /^\| B \| 2 \|$/m);
+});
+
+test("セル内の | はエスケープし、改行は <br> にし、足りないセルは空で埋める", () => {
+  const { markdown } = convertArticle(
+    wrapArticle("<table><tr><td>a|b</td><td>一行目<br>二行目</td></tr><tr><td>c</td></tr></table>")
+  );
+  assert.match(markdown, /^\| a\\|b \| 一行目<br>二行目 \|$/m);
+  assert.match(markdown, /^\| c \|  \|$/m);
+});
+
+test("table の caption は表の直前に斜体で出す", () => {
+  const { markdown } = convertArticle(
+    wrapArticle("<table><caption>料金表</caption><tr><th>x</th></tr><tr><td>1</td></tr></table>")
+  );
+  assert.match(markdown, /\*料金表\*\n\n\| x \|\n\| --- \|\n\| 1 \|/);
+});
+
+/* --------------------------------- 引用 --------------------------------- */
+
+test("引用内のリスト・画像・改行を保持する", () => {
+  const { markdown } = convertArticle(
+    wrapArticle(
+      '<blockquote><p>一行目<br>二行目</p><ul><li>項目</li></ul><figure><img src="https://assets.st-note.com/img/a.png" alt=""></figure></blockquote>'
+    )
+  );
+  assert.match(markdown, /^> 一行目 {2}$/m);
+  assert.match(markdown, /^> 二行目$/m);
+  assert.match(markdown, /^> - 項目$/m);
+  assert.match(markdown, /^> !\[\]\(https:\/\/assets\.st-note\.com\/img\/a\.png\)$/m);
+});
+
+test("入れ子の引用は > > で出力し、空行の連続は1つにまとめる", () => {
+  const { markdown } = convertArticle(
+    wrapArticle("<blockquote><p>外側</p><blockquote><p>内側</p></blockquote><p>外側の続き</p></blockquote>")
+  );
+  assert.match(markdown, /^> 外側\n>\n> > 内側\n>\n> 外側の続き$/m);
+  assert.doesNotMatch(markdown, /^>\n>$/m);
+});
+
+/* -------------------------------- 有料記事 -------------------------------- */
+
+const PAYWALL_HTML =
+  '<div class="p-article__paywall"><div class="note-paywall o-paywall"><div class="m-paywallHeader"><h2><span class="m-paywallHeader__label">ここから先は</span></h2><div><div>4,480字<span>/</span>5画像</div></div></div></div></div>';
+
+test("有料記事は無料公開部分を変換し、末尾に未取得の注記を付ける", () => {
+  const html = wrapArticle("<p>無料部分</p>").replace("</article>", `${PAYWALL_HTML}</article>`);
+  const { markdown, paywall } = convertArticle(html);
+  assert.match(markdown, /無料部分/);
+  assert.match(markdown, /\n> ここから先は有料部分（4,480字 \/ 5画像）のため、この Markdown には含まれていません。$/);
+  assert.deepEqual({ ...paywall }, { chars: 4480, images: 5 });
+  assert.doesNotMatch(markdown, /^paywall:/m);
+});
+
+test("paywall が無ければ注記を付けず paywall は null", () => {
+  const { markdown, paywall } = convertArticle(wrapArticle("<p>本文</p>"));
+  assert.doesNotMatch(markdown, /有料部分/);
+  assert.equal(paywall, null);
+});
+
+test("無料公開部分が無い有料記事は有料記事である旨のエラーにする", () => {
+  const html = wrapArticle("").replace("</article>", `${PAYWALL_HTML}</article>`);
+  assert.throws(() => convertArticle(html), /有料記事のため本文を取得できません/);
+});
+
+test("課金境界の見出しも量の表示も無い枠は paywall として扱わない", () => {
+  const html = wrapArticle("<p>本文</p>").replace(
+    "</article>",
+    '<div class="p-article__paywall"><div class="note-paywall"><p>購入済み</p></div></div></article>'
+  );
+  const { markdown, paywall } = convertArticle(html);
+  assert.equal(paywall, null);
+  assert.doesNotMatch(markdown, /有料部分/);
+});

@@ -755,7 +755,7 @@ const noteFolderNameFromUrl = (articleUrl) => NoteToMarkdown.noteFolderNameFromU
  */
 const saveImages = async (images, articleUrl) => {
   if (!images.length) {
-    return;
+    return [];
   }
   const response = await chrome.runtime.sendMessage({
     type: "saveImagesForArticle",
@@ -766,6 +766,7 @@ const saveImages = async (images, articleUrl) => {
   if (!response?.ok) {
     throw new Error(response?.error ?? t("error.saveImagesFailed"));
   }
+  return Array.isArray(response.results) ? response.results : [];
 };
 
 /**
@@ -782,16 +783,19 @@ const finalizeMarkdownImages = async (markdown, articleUrl) => {
   }
 
   const noteFolderName = noteFolderNameFromUrl(articleUrl);
+  const pathPrefix = imageSettings.imageImportMode === "download" ? `${noteFolderName}/` : "";
   const processed = await NoteToMarkdown.processMarkdownImages(markdown, {
     imageImportMode: imageSettings.imageImportMode,
-    imagePathPrefix: imageSettings.imageImportMode === "download" ? `${noteFolderName}/` : "",
+    imagePathPrefix: pathPrefix,
   });
 
-  if (imageSettings.imageImportMode === "download") {
-    await saveImages(processed.images, articleUrl);
+  if (imageSettings.imageImportMode !== "download") {
+    return processed.markdown;
   }
 
-  return processed.markdown;
+  // 保存時に拡張子が確定する（中身から判定する）ので、結果を Markdown に反映する。
+  const results = await saveImages(processed.images, articleUrl);
+  return NoteToMarkdown.applyImageSaveResults(processed.markdown, results, pathPrefix);
 };
 
 /**
@@ -1092,7 +1096,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
           : [],
       });
-      sendResponse({ ok: true, title: result.title, markdown: result.markdown });
+      sendResponse({ ok: true, title: result.title, markdown: result.markdown, paywall: result.paywall ?? null });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : t("error.convertFailed");
       sendResponse({ ok: false, error: errorMessage });

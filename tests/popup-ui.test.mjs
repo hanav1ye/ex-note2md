@@ -439,3 +439,73 @@ test("サイドパネルのスキ数更新ボタンは自分を閉じない", as
   assert.equal(opened, true);
   assert.equal(closed, false, "サイドパネルは閉じられないので close を呼ぶべきではありません");
 });
+
+/* ------------------------------ 変換後の注記 ------------------------------ */
+
+/**
+ * タブ変換をコピーで実行し、status に残った文言を返す。
+ * @param {{tabResponse: object}} params - content script からの応答。
+ */
+const runConvert = async ({ tabResponse }) => {
+  const { win, doc } = await loadPopup({ sourceMode: "tab", outputMode: "copy" });
+  win.chrome.tabs.sendMessage = async () => tabResponse;
+  Object.defineProperty(win.navigator, "clipboard", { value: { writeText: async () => {} }, configurable: true });
+  win.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+  click(win, doc.getElementById("convertBtn"));
+  await flush(60);
+  return { win, doc, status: doc.getElementById("status").textContent };
+};
+
+test("有料記事を変換したら、無料公開部分だけである旨を status に残す", async () => {
+  const { status } = await runConvert({
+    tabResponse: { ok: true, title: "T", markdown: "# T\n\n本文", paywall: { chars: 4480, images: 5 } },
+  });
+  assert.match(status, /有料記事のため、無料公開部分だけを変換しました/);
+});
+
+test("通常の記事では変換後に注記を出さない", async () => {
+  const { status } = await runConvert({
+    tabResponse: { ok: true, title: "T", markdown: "# T\n\n本文", paywall: null },
+  });
+  assert.equal(status, "");
+});
+
+test("保存できなかった画像は URL 参照に戻し、その件数を status に残す", async () => {
+  const { win, doc } = await loadPopup({
+    sourceMode: "tab",
+    outputMode: "copy",
+    imageImportMode: "download",
+    imageFolderConfig: { folderLabel: "Images", hasFolder: true },
+  });
+  win.chrome.tabs.sendMessage = async () => ({
+    ok: true,
+    title: "T",
+    markdown: "# T\n\n![](https://assets.st-note.com/img/a.png)\n![](https://assets.st-note.com/img/b.png)",
+    paywall: null,
+  });
+  win.chrome.runtime.sendMessage = async (message) => {
+    if (message.type === "saveImagesForArticle") {
+      return {
+        ok: true,
+        savedCount: 1,
+        results: [
+          { url: "https://assets.st-note.com/img/a.png", requested: "img1.png", filename: "img1.webp" },
+          { url: "https://assets.st-note.com/img/b.png", requested: "img2.png", filename: null },
+        ],
+      };
+    }
+    return { ok: true };
+  };
+  let copied = "";
+  Object.defineProperty(win.navigator, "clipboard", {
+    value: { writeText: async (text) => { copied = text; } },
+    configurable: true,
+  });
+  win.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+  click(win, doc.getElementById("convertBtn"));
+  await flush(60);
+
+  assert.match(copied, /!\[\]\(nabc123\/img1\.webp\)/);
+  assert.match(copied, /!\[\]\(https:\/\/assets\.st-note\.com\/img\/b\.png\)/);
+  assert.match(doc.getElementById("status").textContent, /保存できなかった画像 1 件/);
+});
