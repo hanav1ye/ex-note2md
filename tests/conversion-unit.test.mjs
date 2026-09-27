@@ -366,3 +366,48 @@ test("ネストしたフェンスを含むコードブロックでも中身を�
   );
   assert.match(markdown, /````\n```\nnested\n```\n\n\n\nafter\n````/);
 });
+
+/* ------------------------------ 末尾の取りこぼし ----------------------------- */
+
+test("末尾が文字を持たないリンクだけの段落でも落とさない", () => {
+  const { markdown } = convertArticle(
+    wrapArticle('<p>本文</p><p><a href="https://note.com/hanaviye/n/n111"></a></p>')
+  );
+  assert.match(markdown, /\[https:\/\/note\.com\/hanaviye\/n\/n111\]\(https:\/\/note\.com\/hanaviye\/n\/n111\)$/);
+});
+
+test("リンクの無い埋め込み（iframe だけの figure）は埋め込み先URLを拾う", () => {
+  const { markdown } = convertArticle(
+    wrapArticle('<p>本文</p><figure><iframe src="https://note.com/qa/embed/hanaviye"></iframe></figure>')
+  );
+  assert.match(markdown, /\[https:\/\/note\.com\/qa\/embed\/hanaviye\]\(https:\/\/note\.com\/qa\/embed\/hanaviye\)$/);
+});
+
+test("遅延読み込みの埋め込みは data-src から拾う", () => {
+  const { markdown } = convertArticle(
+    wrapArticle('<p>本文</p><figure><iframe data-src="https://note.com/embed/notes/n222"></iframe></figure>')
+  );
+  assert.match(markdown, /\[https:\/\/note\.com\/embed\/notes\/n222\]/);
+});
+
+test("埋め込みにリンクがあれば iframe のURLではなくリンク先を使う", () => {
+  const { markdown } = convertArticle(
+    wrapArticle(
+      '<p>本文</p><figure><a href="https://note.com/hanaviye/n/n333">記事</a><iframe data-src="https://note.com/embed/notes/n333"></iframe></figure>'
+    )
+  );
+  assert.match(markdown, /\[https:\/\/note\.com\/hanaviye\/n\/n333\]/);
+  assert.doesNotMatch(markdown, /embed\/notes/);
+});
+
+test("javascript: など http(s) 以外の埋め込みURLは拾わない", () => {
+  const { markdown } = convertArticle(
+    wrapArticle('<p>本文</p><figure><iframe src="javascript:alert(1)"></iframe></figure>')
+  );
+  assert.doesNotMatch(markdown, /javascript:/);
+});
+
+test("中身の無い末尾ブロックは従来どおり落とす", () => {
+  const { markdown } = convertArticle(wrapArticle("<p>本文</p><p></p><p>  </p><br>"));
+  assert.match(markdown, /本文$/);
+});
