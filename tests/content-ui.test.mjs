@@ -503,3 +503,42 @@ test("クリエイターページの一覧コンテナは従来どおり優先�
   const items = [...shadowOf(win).querySelectorAll(".panel-list div")].map((el) => el.textContent);
   assert.deepEqual(items, ["1. 記事1"]);
 });
+
+/* -------------------------------- 有料記事 -------------------------------- */
+
+const toastText = (win) => shadowOf(win).querySelector(".toast")?.textContent ?? "";
+
+test("有料記事を選択してダウンロードすると、無料公開部分のみである旨をトーストに添える", async () => {
+  const { win, send, downloads } = loadContentScript();
+  win.NoteToMarkdown.convertNotePageToMarkdown = () => ({
+    title: "記事",
+    markdown: "# 記事",
+    metadata: {},
+    paywall: { chars: 4480, images: 5 },
+  });
+  await send({ type: "startLinkPickMode", outputMode: "download", downloadPreset: "preset1", tags: [] });
+
+  clickLink(win, "/hanaviye/n/n111");
+  await flush(120);
+
+  assert.equal(downloads.length, 1);
+  assert.match(toastText(win), /ダウンロード完了: 記事（有料記事: 無料公開部分のみ）/);
+});
+
+test("一括処理の結果に有料記事の件数を出す", async () => {
+  const { win, send } = loadContentScript();
+  let call = 0;
+  win.NoteToMarkdown.convertNotePageToMarkdown = () => {
+    call += 1;
+    return { title: `記事${call}`, markdown: "# 記事", metadata: {}, paywall: call === 1 ? { chars: 100, images: null } : null };
+  };
+  await send({ type: "startMultiLinkPickMode", downloadPreset: "preset1", tags: [] });
+  clickLink(win, "/hanaviye/n/n111");
+  clickLink(win, "/hanaviye/n/n222");
+  await flush();
+
+  shadowOf(win).querySelector('[data-role="run"]').dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await flush(700);
+
+  assert.match(toastText(win), /新規保存 2件 \/ 上書き 0件 \/ 失敗 0件 \/ 有料記事 1件（無料公開部分のみ）/);
+});

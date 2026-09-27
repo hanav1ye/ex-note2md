@@ -227,3 +227,187 @@ test("URL参照モードでは何も変換しない", async () => {
   assert.equal(result.markdown, markdown);
   assert.equal([...result.images].length, 0);
 });
+
+test("画像の保存結果で参照先を差し替え、失敗分は元URLへ戻す", () => {
+  const win = createLibWindow();
+  const markdown = "![a](nabc/img1.png)\n![b](nabc/img2.png)\n![c](nabc/img3.jpg)";
+  const result = win.NoteToMarkdown.applyImageSaveResults(
+    markdown,
+    [
+      { url: "https://assets.st-note.com/img/a.png", requested: "img1.png", filename: "img1.webp" },
+      { url: "https://assets.st-note.com/img/b.png", requested: "img2.png", filename: null },
+      { url: "https://assets.st-note.com/img/c.jpg", requested: "img3.jpg", filename: "img3.jpg" },
+    ],
+    "nabc/"
+  );
+  assert.equal(
+    result,
+    "![a](nabc/img1.webp)\n![b](https://assets.st-note.com/img/b.png)\n![c](nabc/img3.jpg)"
+  );
+});
+
+/* -------------------------------- テーブル -------------------------------- */
+
+test("table を GFM の表へ変換する（1行目を見出し行にする）", () => {
+  const { markdown } = convertArticle(
+    wrapArticle(
+      "<table><thead><tr><th>項目</th><th>値</th></tr></thead><tbody><tr><td>A</td><td><strong>1</strong></td></tr><tr><td>B</td><td>2</td></tr></tbody></table>"
+    )
+  );
+  assert.match(markdown, /^\| 項目 \| 値 \|$/m);
+  assert.match(markdown, /^\| --- \| --- \|$/m);
+  assert.match(markdown, /^\| A \| \*\*1\*\* \|$/m);
+  assert.match(markdown, /^\| B \| 2 \|$/m);
+});
+
+test("セル内の | はエスケープし、改行は <br> にし、足りないセルは空で埋める", () => {
+  const { markdown } = convertArticle(
+    wrapArticle("<table><tr><td>a|b</td><td>一行目<br>二行目</td></tr><tr><td>c</td></tr></table>")
+  );
+  assert.match(markdown, /^\| a\\|b \| 一行目<br>二行目 \|$/m);
+  assert.match(markdown, /^\| c \|  \|$/m);
+});
+
+test("table の caption は表の直前に斜体で出す", () => {
+  const { markdown } = convertArticle(
+    wrapArticle("<table><caption>料金表</caption><tr><th>x</th></tr><tr><td>1</td></tr></table>")
+  );
+  assert.match(markdown, /\*料金表\*\n\n\| x \|\n\| --- \|\n\| 1 \|/);
+});
+
+/* --------------------------------- 引用 --------------------------------- */
+
+test("引用内のリスト・画像・改行を保持する", () => {
+  const { markdown } = convertArticle(
+    wrapArticle(
+      '<blockquote><p>一行目<br>二行目</p><ul><li>項目</li></ul><figure><img src="https://assets.st-note.com/img/a.png" alt=""></figure></blockquote>'
+    )
+  );
+  assert.match(markdown, /^> 一行目 {2}$/m);
+  assert.match(markdown, /^> 二行目$/m);
+  assert.match(markdown, /^> - 項目$/m);
+  assert.match(markdown, /^> !\[\]\(https:\/\/assets\.st-note\.com\/img\/a\.png\)$/m);
+});
+
+test("入れ子の引用は > > で出力し、空行の連続は1つにまとめる", () => {
+  const { markdown } = convertArticle(
+    wrapArticle("<blockquote><p>外側</p><blockquote><p>内側</p></blockquote><p>外側の続き</p></blockquote>")
+  );
+  assert.match(markdown, /^> 外側\n>\n> > 内側\n>\n> 外側の続き$/m);
+  assert.doesNotMatch(markdown, /^>\n>$/m);
+});
+
+/* -------------------------------- 有料記事 -------------------------------- */
+
+const PAYWALL_HTML =
+  '<div class="p-article__paywall"><div class="note-paywall o-paywall"><div class="m-paywallHeader"><h2><span class="m-paywallHeader__label">ここから先は</span></h2><div><div>4,480字<span>/</span>5画像</div></div></div></div></div>';
+
+test("有料記事は無料公開部分を変換し、末尾に未取得の注記を付ける", () => {
+  const html = wrapArticle("<p>無料部分</p>").replace("</article>", `${PAYWALL_HTML}</article>`);
+  const { markdown, paywall } = convertArticle(html);
+  assert.match(markdown, /無料部分/);
+  assert.match(markdown, /\n> ここから先は有料部分（4,480字 \/ 5画像）のため、この Markdown には含まれていません。$/);
+  assert.deepEqual({ ...paywall }, { chars: 4480, images: 5 });
+  assert.doesNotMatch(markdown, /^paywall:/m);
+});
+
+test("paywall が無ければ注記を付けず paywall は null", () => {
+  const { markdown, paywall } = convertArticle(wrapArticle("<p>本文</p>"));
+  assert.doesNotMatch(markdown, /有料部分/);
+  assert.equal(paywall, null);
+});
+
+test("無料公開部分が無い有料記事は有料記事である旨のエラーにする", () => {
+  const html = wrapArticle("").replace("</article>", `${PAYWALL_HTML}</article>`);
+  assert.throws(() => convertArticle(html), /有料記事のため本文を取得できません/);
+});
+
+test("課金境界の見出しも量の表示も無い枠は paywall として扱わない", () => {
+  const html = wrapArticle("<p>本文</p>").replace(
+    "</article>",
+    '<div class="p-article__paywall"><div class="note-paywall"><p>購入済み</p></div></div></article>'
+  );
+  const { markdown, paywall } = convertArticle(html);
+  assert.equal(paywall, null);
+  assert.doesNotMatch(markdown, /有料部分/);
+});
+
+/* -------------------------------- 空行の整理 ------------------------------- */
+
+test("段落の直後に続くブロックとの間の空行を1つにまとめる", () => {
+  const blocks = {
+    画像: '<figure><img src="https://assets.st-note.com/img/a.png" alt=""></figure>',
+    引用: "<blockquote><p>q</p></blockquote>",
+    リスト: "<ul><li>item</li></ul>",
+    表: "<table><tr><td>a</td></tr></table>",
+    見出し: "<h2>見出し</h2>",
+    埋め込みリンク: '<figure><a href="https://x.test/">x</a></figure>',
+  };
+  Object.entries(blocks).forEach(([label, block]) => {
+    const { markdown } = convertArticle(wrapArticle(`<p>本文</p>${block}<p>後続</p>`));
+    assert.doesNotMatch(markdown, /\n{3,}/, `${label}の前後に余分な空行が残っています`);
+  });
+});
+
+test("空白だけの行は空行に揃える（ハード改行は残す）", () => {
+  const { markdown } = convertArticle(wrapArticle("<p>一行目<br><br>三行目</p><p>次</p>"));
+  assert.doesNotMatch(markdown, /^[ \t]+$/m);
+  assert.match(markdown, /^一行目 {2}$/m, "行末のハード改行が失われています");
+});
+
+test("コードブロック内の空行は残す", () => {
+  const { markdown } = convertArticle(wrapArticle("<pre><code>a\n\n\n\nb</code></pre><p>後続</p>"));
+  assert.match(markdown, /```\na\n\n\n\nb\n```/);
+});
+
+test("ネストしたフェンスを含むコードブロックでも中身を変えない", () => {
+  const { markdown } = convertArticle(
+    wrapArticle("<pre><code>```\nnested\n```\n\n\n\nafter</code></pre><p>後続</p>")
+  );
+  assert.match(markdown, /````\n```\nnested\n```\n\n\n\nafter\n````/);
+});
+
+/* ------------------------------ 末尾の取りこぼし ----------------------------- */
+
+test("末尾が文字を持たないリンクだけの段落でも落とさない", () => {
+  const { markdown } = convertArticle(
+    wrapArticle('<p>本文</p><p><a href="https://note.com/hanaviye/n/n111"></a></p>')
+  );
+  assert.match(markdown, /\[https:\/\/note\.com\/hanaviye\/n\/n111\]\(https:\/\/note\.com\/hanaviye\/n\/n111\)$/);
+});
+
+test("リンクの無い埋め込み（iframe だけの figure）は埋め込み先URLを拾う", () => {
+  const { markdown } = convertArticle(
+    wrapArticle('<p>本文</p><figure><iframe src="https://note.com/qa/embed/hanaviye"></iframe></figure>')
+  );
+  assert.match(markdown, /\[https:\/\/note\.com\/qa\/embed\/hanaviye\]\(https:\/\/note\.com\/qa\/embed\/hanaviye\)$/);
+});
+
+test("遅延読み込みの埋め込みは data-src から拾う", () => {
+  const { markdown } = convertArticle(
+    wrapArticle('<p>本文</p><figure><iframe data-src="https://note.com/embed/notes/n222"></iframe></figure>')
+  );
+  assert.match(markdown, /\[https:\/\/note\.com\/embed\/notes\/n222\]/);
+});
+
+test("埋め込みにリンクがあれば iframe のURLではなくリンク先を使う", () => {
+  const { markdown } = convertArticle(
+    wrapArticle(
+      '<p>本文</p><figure><a href="https://note.com/hanaviye/n/n333">記事</a><iframe data-src="https://note.com/embed/notes/n333"></iframe></figure>'
+    )
+  );
+  assert.match(markdown, /\[https:\/\/note\.com\/hanaviye\/n\/n333\]/);
+  assert.doesNotMatch(markdown, /embed\/notes/);
+});
+
+test("javascript: など http(s) 以外の埋め込みURLは拾わない", () => {
+  const { markdown } = convertArticle(
+    wrapArticle('<p>本文</p><figure><iframe src="javascript:alert(1)"></iframe></figure>')
+  );
+  assert.doesNotMatch(markdown, /javascript:/);
+});
+
+test("中身の無い末尾ブロックは従来どおり落とす", () => {
+  const { markdown } = convertArticle(wrapArticle("<p>本文</p><p></p><p>  </p><br>"));
+  assert.match(markdown, /本文$/);
+});

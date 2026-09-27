@@ -73,6 +73,7 @@ const loadBackground = ({ store = {}, handles = {}, fetchImpl } = {}) => {
     clearTimeout,
     URL,
     TextEncoder,
+    TextDecoder,
     Uint8Array,
     Error,
     fetchCalls,
@@ -365,6 +366,118 @@ test("一部の画像が失敗しても成功分は保存する", async () => {
 
   assert.equal(response.ok, true);
   assert.equal(response.savedCount, 1);
+});
+
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52]);
+const WEBP_BYTES = new Uint8Array([...new TextEncoder().encode("RIFF"), 0, 0, 0, 0, ...new TextEncoder().encode("WEBPVP8 ")]);
+
+/**
+ * 画像レスポンスのスタブを作る。
+ * @param {Uint8Array} bytes - 本文。
+ * @param {string} [contentType=""] - Content-Type。
+ */
+const imageResponse = (bytes, contentType = "") => ({
+  ok: true,
+  headers: { get: (name) => (name.toLowerCase() === "content-type" ? contentType || null : null) },
+  arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+});
+
+test("画像の中身が URL の拡張子と違えば中身に合わせて保存し、結果で知らせる", async () => {
+  const rootHandle = createDirectoryHandle({ name: "Images" });
+  const { send } = loadBackground({
+    store: imageStore,
+    handles: { imageFolder: rootHandle },
+    fetchImpl: async () => imageResponse(WEBP_BYTES, "image/png"),
+  });
+
+  const response = await send({
+    type: "saveImagesForArticle",
+    noteId: "nabc123",
+    images: [{ filename: "img1.png", url: "https://assets.st-note.com/img/a.png" }],
+  });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual([...rootHandle.directories.get("nabc123").files.keys()], ["img1.webp"]);
+  assert.equal(response.results.length, 1);
+  assert.equal(response.results[0].requested, "img1.png");
+  assert.equal(response.results[0].filename, "img1.webp");
+});
+
+test("中身で判別できなければ Content-Type、それも無ければ URL の拡張子を使う", async () => {
+  const rootHandle = createDirectoryHandle({ name: "Images" });
+  let call = 0;
+  const { send } = loadBackground({
+    store: imageStore,
+    handles: { imageFolder: rootHandle },
+    fetchImpl: async () => {
+      call += 1;
+      const unknownBytes = new TextEncoder().encode("not-a-real-image-payload");
+      return call === 1 ? imageResponse(unknownBytes, "image/gif; charset=binary") : imageResponse(unknownBytes);
+    },
+  });
+
+  const response = await send({
+    type: "saveImagesForArticle",
+    noteId: "nabc123",
+    images: [
+      { filename: "img1.png", url: "https://assets.st-note.com/img/a" },
+      { filename: "img2.jpg", url: "https://assets.st-note.com/img/b.jpg" },
+    ],
+  });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual([...rootHandle.directories.get("nabc123").files.keys()], ["img1.gif", "img2.jpg"]);
+});
+
+test("画像形式をどの方法でも判別できなければ保存せず、結果の filename を null にする", async () => {
+  const rootHandle = createDirectoryHandle({ name: "Images" });
+  let call = 0;
+  const { send } = loadBackground({
+    store: imageStore,
+    handles: { imageFolder: rootHandle },
+    fetchImpl: async () => {
+      call += 1;
+      return call === 1
+        ? imageResponse(new TextEncoder().encode("<html>error page</html>"), "text/html")
+        : imageResponse(PNG_BYTES, "image/png");
+    },
+  });
+
+  const response = await send({
+    type: "saveImagesForArticle",
+    noteId: "nabc123",
+    images: [
+      { filename: "img1.bin", url: "https://assets.st-note.com/img/a" },
+      { filename: "img2.png", url: "https://assets.st-note.com/img/b.png" },
+    ],
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.savedCount, 1);
+  assert.deepEqual([...rootHandle.directories.get("nabc123").files.keys()], ["img2.png"]);
+  assert.equal(response.results[0].filename, null);
+  assert.equal(response.results[0].url, "https://assets.st-note.com/img/a");
+  assert.equal(response.results[1].filename, "img2.png");
+});
+
+test("SVG はテキストの先頭から判別する", async () => {
+  const rootHandle = createDirectoryHandle({ name: "Images" });
+  const { send } = loadBackground({
+    store: imageStore,
+    handles: { imageFolder: rootHandle },
+    fetchImpl: async () =>
+      imageResponse(
+        new TextEncoder().encode('<?xml version="1.0"?>\n<!-- c -->\n<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+      ),
+  });
+
+  await send({
+    type: "saveImagesForArticle",
+    noteId: "nabc123",
+    images: [{ filename: "img1.png", url: "https://assets.st-note.com/img/a.png" }],
+  });
+
+  assert.deepEqual([...rootHandle.directories.get("nabc123").files.keys()], ["img1.svg"]);
 });
 
 /* ------------------------------ メッセージ検証 ----------------------------- */

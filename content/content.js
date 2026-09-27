@@ -755,7 +755,7 @@ const noteFolderNameFromUrl = (articleUrl) => NoteToMarkdown.noteFolderNameFromU
  */
 const saveImages = async (images, articleUrl) => {
   if (!images.length) {
-    return;
+    return [];
   }
   const response = await chrome.runtime.sendMessage({
     type: "saveImagesForArticle",
@@ -766,6 +766,7 @@ const saveImages = async (images, articleUrl) => {
   if (!response?.ok) {
     throw new Error(response?.error ?? t("error.saveImagesFailed"));
   }
+  return Array.isArray(response.results) ? response.results : [];
 };
 
 /**
@@ -782,16 +783,19 @@ const finalizeMarkdownImages = async (markdown, articleUrl) => {
   }
 
   const noteFolderName = noteFolderNameFromUrl(articleUrl);
+  const pathPrefix = imageSettings.imageImportMode === "download" ? `${noteFolderName}/` : "";
   const processed = await NoteToMarkdown.processMarkdownImages(markdown, {
     imageImportMode: imageSettings.imageImportMode,
-    imagePathPrefix: imageSettings.imageImportMode === "download" ? `${noteFolderName}/` : "",
+    imagePathPrefix: pathPrefix,
   });
 
-  if (imageSettings.imageImportMode === "download") {
-    await saveImages(processed.images, articleUrl);
+  if (imageSettings.imageImportMode !== "download") {
+    return processed.markdown;
   }
 
-  return processed.markdown;
+  // 保存時に拡張子が確定する（中身から判定する）ので、結果を Markdown に反映する。
+  const results = await saveImages(processed.images, articleUrl);
+  return NoteToMarkdown.applyImageSaveResults(processed.markdown, results, pathPrefix);
 };
 
 /**
@@ -838,7 +842,7 @@ const getConversionOptions = async () => {
  * 単一記事の取得・変換・出力（コピー/ダウンロード）を実行する。
  * @param {string} url - 対象記事URL。
  * @param {{suppressToast?: boolean}} [options={}] - 表示制御オプション。
- * @returns {Promise<{mode: string, title: string, message: string, overwritten?: boolean}>} 実行結果。
+ * @returns {Promise<{mode: string, title: string, message: string, overwritten?: boolean, paywall: boolean}>} 実行結果。
  */
 const convertPickedArticle = async (url, options = {}) => {
   if (!url) {
@@ -862,6 +866,9 @@ const convertPickedArticle = async (url, options = {}) => {
   const conversionOptions = await getConversionOptions();
   const result = NoteToMarkdown.convertNotePageToMarkdown(doc, url, conversionOptions);
   result.markdown = await finalizeMarkdownImages(result.markdown, url);
+  // 有料記事は無料公開部分しか取れていないので、完了通知にもその旨を添える。
+  const paywall = Boolean(result.paywall);
+  const paywallSuffix = paywall ? t("content.toast.paywallSuffix") : "";
 
   if (pickContext.outputMode === "download") {
     const downloadResponse = await chrome.runtime.sendMessage({
@@ -875,23 +882,28 @@ const convertPickedArticle = async (url, options = {}) => {
     }
     if (downloadResponse.overwritten) {
       if (!options.suppressToast) {
-        showPageToast(t("content.toast.overwritten", { filename: downloadResponse.filename }), "ok");
+        showPageToast(
+          t("content.toast.overwritten", { filename: downloadResponse.filename }) + paywallSuffix,
+          "ok"
+        );
       }
       return {
         mode: "download",
         overwritten: true,
+        paywall,
         title: downloadResponse.filename,
-        message: t("content.result.overwritten", { filename: downloadResponse.filename }),
+        message: t("content.result.overwritten", { filename: downloadResponse.filename }) + paywallSuffix,
       };
     }
     if (!options.suppressToast) {
-      showPageToast(t("content.toast.downloaded", { title: result.title }), "ok");
+      showPageToast(t("content.toast.downloaded", { title: result.title }) + paywallSuffix, "ok");
     }
     return {
       mode: "download",
       overwritten: false,
+      paywall,
       title: result.title,
-      message: t("content.result.saved", { title: result.title }),
+      message: t("content.result.saved", { title: result.title }) + paywallSuffix,
     };
   }
 
@@ -900,12 +912,13 @@ const convertPickedArticle = async (url, options = {}) => {
     throw new Error(t("error.copyFailed"));
   }
   if (!options.suppressToast) {
-    showPageToast(t("content.toast.copied", { title: result.title }), "ok");
+    showPageToast(t("content.toast.copied", { title: result.title }) + paywallSuffix, "ok");
   }
   return {
     mode: "copy",
+    paywall,
     title: result.title,
-    message: t("content.result.copied", { title: result.title }),
+    message: t("content.result.copied", { title: result.title }) + paywallSuffix,
   };
 };
 
@@ -920,6 +933,7 @@ const runMultiPickedArticleAction = async () => {
 
   let successCount = 0;
   let overwrittenCount = 0;
+  let paywallCount = 0;
   let failedCount = 0;
   let lastTitle = "";
   const targets = [...multiPickedArticles];
@@ -940,6 +954,9 @@ const runMultiPickedArticleAction = async () => {
     try {
       const result = await convertPickedArticle(currentUrl, { suppressToast: true });
       lastTitle = result.title;
+      if (result.paywall) {
+        paywallCount += 1;
+      }
       if (result.overwritten) {
         overwrittenCount += 1;
         showPageToast(
@@ -993,6 +1010,7 @@ const runMultiPickedArticleAction = async () => {
       overwritten: overwrittenCount,
       failed: failedCount,
     }) +
+    (paywallCount > 0 ? t("content.summary.paywall", { count: paywallCount }) : "") +
     (cancelled ? t("content.summary.remaining", { count: multiPickedArticles.length }) : "");
   showPageToast(summary, failedCount > 0 ? "error" : cancelled ? "skip" : "ok");
 
@@ -1092,7 +1110,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
           : [],
       });
-      sendResponse({ ok: true, title: result.title, markdown: result.markdown });
+      sendResponse({ ok: true, title: result.title, markdown: result.markdown, paywall: result.paywall ?? null });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : t("error.convertFailed");
       sendResponse({ ok: false, error: errorMessage });
