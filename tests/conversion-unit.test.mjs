@@ -331,3 +331,38 @@ test("課金境界の見出しも量の表示も無い枠は paywall として�
   assert.equal(paywall, null);
   assert.doesNotMatch(markdown, /有料部分/);
 });
+
+/* -------------------------------- 空行の整理 ------------------------------- */
+
+test("段落の直後に続くブロックとの間の空行を1つにまとめる", () => {
+  const blocks = {
+    画像: '<figure><img src="https://assets.st-note.com/img/a.png" alt=""></figure>',
+    引用: "<blockquote><p>q</p></blockquote>",
+    リスト: "<ul><li>item</li></ul>",
+    表: "<table><tr><td>a</td></tr></table>",
+    見出し: "<h2>見出し</h2>",
+    埋め込みリンク: '<figure><a href="https://x.test/">x</a></figure>',
+  };
+  Object.entries(blocks).forEach(([label, block]) => {
+    const { markdown } = convertArticle(wrapArticle(`<p>本文</p>${block}<p>後続</p>`));
+    assert.doesNotMatch(markdown, /\n{3,}/, `${label}の前後に余分な空行が残っています`);
+  });
+});
+
+test("空白だけの行は空行に揃える（ハード改行は残す）", () => {
+  const { markdown } = convertArticle(wrapArticle("<p>一行目<br><br>三行目</p><p>次</p>"));
+  assert.doesNotMatch(markdown, /^[ \t]+$/m);
+  assert.match(markdown, /^一行目 {2}$/m, "行末のハード改行が失われています");
+});
+
+test("コードブロック内の空行は残す", () => {
+  const { markdown } = convertArticle(wrapArticle("<pre><code>a\n\n\n\nb</code></pre><p>後続</p>"));
+  assert.match(markdown, /```\na\n\n\n\nb\n```/);
+});
+
+test("ネストしたフェンスを含むコードブロックでも中身を変えない", () => {
+  const { markdown } = convertArticle(
+    wrapArticle("<pre><code>```\nnested\n```\n\n\n\nafter</code></pre><p>後続</p>")
+  );
+  assert.match(markdown, /````\n```\nnested\n```\n\n\n\nafter\n````/);
+});
