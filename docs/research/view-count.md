@@ -128,6 +128,51 @@ DashboardNoteListOrder: PUBLISHED_DATE_DESC IMPRESSION_COUNT_DESC PAGE_VIEW_COUN
    スキーマが変わったら止まる。失敗時は「取得できませんでした」で止まる作りにする
 4. **他人の記事には値が入らない。** 自分の記事だけの機能になる
 
+## 決定事項（2026-10-05）
+
+### 1. frontmatter のキー名 — `page_view_count` / `impression_count`
+
+旧「ビュー」とは別物なので `view_count` は使わない。
+
+### 2. 集計日時を残す — `stats_updated_at`
+
+GraphQL の `dashboardStatLastUpdatedTimes.noteStatLastUpdatedAt` をそのまま書く。
+数値がリアルタイムでないことがファイル上で分かるようにする。
+
+### 3. 他人の記事は触らない
+
+ダッシュボードは自分の記事しか返さないので、値が無い記事にはキーを追加しない。
+
+### 4. 3 つの数値はすべて「常に最新」で上書きする
+
+| frontmatter | 取得元 | 性質 |
+|-------------|--------|------|
+| `like_count` | `https://note.com/api/v3/notes/{id}`（公開・`credentials: "omit"`） | **現在の合計** |
+| `page_view_count` | GraphQL `metrics.pageViewCount`（`unit: ALL`） | 全期間の累計 |
+| `impression_count` | GraphQL `metrics.impressionCount`（`unit: ALL`） | 全期間の累計（2021-05-01 以降） |
+
+毎回取り直して上書きする。前回値や差分はファイルに残さない。
+
+**スキ数に GraphQL の `likeCount` は使わない。** `unit: ALL` にしても、これは
+「期間内に新しく付いたスキの累計」であって現在の合計ではない。ヘルプに
+「スキが取り消されても、数が減らないことがあります」と明記されており、
+取り消しの分だけ現在の合計より大きくなりうる。
+**現在の合計が欲しいので、スキ数は既存どおり公開 API の値を使う。**
+
+この結果、1 回の実行で通信は次の 2 種類に分かれる。
+
+- GraphQL: 全記事分の PV / インプレッションをページングで数回（軽い）
+- 公開 API: スキ数は記事ごとに 1 回ずつ（既存どおり 300ms 間隔）
+
+「ページビューとインプレッションだけで、スキ数は触らない」という選択肢は作らない。
+3 つとも最新にするのが既定の挙動。
+
+### 5. ログイン済みタブが無いときの導線（未決）
+
+content script が必要なので、ログイン済みの note.com タブが開いていないと実行できない。
+既定は「note.com を開いてから実行してください」と案内する形にする。
+こちらで `chrome.tabs.create` してタブを開く案もあるが、勝手にタブが増えるため既定にはしない。
+
 ## 未確認（ログイン済みセッションが必要）
 
 - ログイン済みトークン（`gu: false`）で `dashboardNoteListConnection` が自分の記事を返すこと
@@ -136,14 +181,3 @@ DashboardNoteListOrder: PUBLISHED_DATE_DESC IMPRESSION_COUNT_DESC PAGE_VIEW_COUN
 
 確認方法: ログイン済みの note.com を開き、DevTools のコンソールで `docs/research/view-count-probe.js` を実行する。
 読み取りだけで、記事の書き換えは行わない。
-
-## 設計の論点（実装時に決めること）
-
-1. **frontmatter のキー名** — `page_view_count` / `impression_count` か、note の表示に寄せるか。
-   旧「ビュー」とは別物なので `view_count` は使わないほうが誤解がない
-2. **集計日時を書くか** — `stats_updated_at: 2026-10-05T07:00:00+09:00` のように、
-   「いつ時点の数値か」を残すと、リアルタイムでないことがファイル上で分かる
-3. **他人の記事の扱い** — 値が無いので触らない（キーを追加しない）
-4. **スキ数更新との関係** — GraphQL の `likeCount` は「期間内に増えた数」で、
-   既存の `like_count`（現在の合計）とは別物。**混ぜてはいけない**。既存機能はそのまま残す
-5. **ログイン済みタブが無いときの導線** — note.com を開くよう促すか、こちらでタブを開くか
