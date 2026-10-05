@@ -4,7 +4,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readSource } from "./helpers/env.mjs";
 
 /**
  * lib/noteStats.js を評価して NtmNoteStats を返す。
@@ -32,7 +32,8 @@ const loadNoteStats = ({ cookies = "", fetchImpl } = {}) => {
       })),
   };
   context.globalThis = context;
-  const source = readFileSync("lib/noteStats.js", "utf8");
+  // readSource 経由にしておくと、minify 済みの dist に対しても同じテストが流れる。
+  const source = readSource("lib", "noteStats.js");
   new Function("globalThis", `${source}\nreturn globalThis.NtmNoteStats;`).call(context, context);
   return { stats: context.NtmNoteStats, state, context };
 };
