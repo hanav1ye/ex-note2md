@@ -167,11 +167,28 @@ GraphQL の `dashboardStatLastUpdatedTimes.noteStatLastUpdatedAt` をそのま�
 「ページビューとインプレッションだけで、スキ数は触らない」という選択肢は作らない。
 3 つとも最新にするのが既定の挙動。
 
-### 5. ログイン済みタブが無いときの導線（未決）
+### 5. ログイン済みタブが無いときは促すだけ
 
 content script が必要なので、ログイン済みの note.com タブが開いていないと実行できない。
-既定は「note.com を開いてから実行してください」と案内する形にする。
-こちらで `chrome.tabs.create` してタブを開く案もあるが、勝手にタブが増えるため既定にはしない。
+その場合は**「note.com を開いてから実行してください」と案内して終わる**。
+`chrome.tabs.create` でタブを開く、ログイン画面へ飛ばすなど、こちらから勝手に何かはしない。
+
+### 6. 数値の単位 — 3 つはすべて「その記事 1 本」の値
+
+| frontmatter | 範囲 | 根拠 |
+|-------------|------|------|
+| `like_count` | **その記事** | `/api/v3/notes/{id}` が記事単位 |
+| `page_view_count` | **その記事** | `dashboardNoteListConnection` の `node.metrics`。`node.note.key` がその記事の note ID。クリエイターページやマガジンページが開かれた回数は含まない |
+| `impression_count` | **その記事** | 同上。他のクリエイターのページに表示された分も、記事を書いた本人の数として計上される |
+| `stats_updated_at` | **アカウント全体** | 下記 |
+
+**`stats_updated_at` だけは記事単位ではない。** `DashboardStatLastUpdatedTimes.noteStatLastUpdatedAt` は
+「記事タブ全体の集計日時」で、introspection で確認したところ `DashboardNoteNode` には
+記事ごとの集計日時のフィールドが無い（`id` / `note` / `metrics` のみ）。
+そのため**全ファイルに同じ日時が入る**。「この数字はいつ時点か」を示す値としては正しいが、
+記事ごとに違う日時が入るわけではない。
+
+アカウント全体の合計を返す `dashboardSummary`（`periodLabel` / `metrics` / `lastUpdatedAt`）は使わない。
 
 ## 未確認（ログイン済みセッションが必要）
 
