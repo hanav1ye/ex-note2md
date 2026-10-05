@@ -1081,6 +1081,49 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  /*
+   * ダッシュボードの数値（ページビュー・インプレッション）の取得。
+   *
+   * ここで行うのは、トークン発行が note.com と同一オリジンである必要があり、
+   * GraphQL 側の CORS も note.com オリジンに対して開いているため。
+   * オプション画面や Service Worker からは実行できない（docs/research/view-count.md）。
+   * 取得するだけで、ファイルの書き換えはオプション画面側が行う。
+   */
+  if (message?.type === "fetchNoteStats") {
+    void (async () => {
+      await NtmI18n.reload();
+      try {
+        const result = await NtmNoteStats.fetchAllStats();
+        if (!result.ok) {
+          sendResponse({
+            ok: false,
+            code: result.code,
+            error:
+              result.code === "not-logged-in"
+                ? t("stats.error.notLoggedIn")
+                : t("stats.error.tokenUnavailable"),
+          });
+          return;
+        }
+        sendResponse({
+          ok: true,
+          rows: result.rows,
+          statsUpdatedAt: result.statsUpdatedAt,
+          truncated: Boolean(result.truncated),
+        });
+      } catch (error) {
+        // instanceof Error はレルムをまたぐと偽になるため message を直接見る。
+        const reason = String(error?.message ?? "");
+        sendResponse({
+          ok: false,
+          code: reason === "unauthenticated" ? "not-logged-in" : "fetch-failed",
+          error: reason === "unauthenticated" ? t("stats.error.notLoggedIn") : t("stats.error.fetchFailed"),
+        });
+      }
+    })();
+    return true;
+  }
+
   if (message?.type === "getArticleTitle") {
     if (!isNoteArticleUrl(location.href)) {
       sendResponse({ ok: false, error: t("error.notNoteArticlePage") });

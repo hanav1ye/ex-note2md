@@ -124,6 +124,7 @@ run('npx --no-install terser "background.js" -c -m -o "dist/background.js"');
 run('npx --no-install terser "content/content.js" -c -m -o "dist/content/content.js"');
 run('npx --no-install terser "lib/i18n.js" -c -m -o "dist/lib/i18n.js"');
 run('npx --no-install terser "lib/likeCount.js" -c -m -o "dist/lib/likeCount.js"');
+run('npx --no-install terser "lib/noteStats.js" -c -m -o "dist/lib/noteStats.js"');
 run('npx --no-install terser "lib/noteToMarkdown.js" -c -m -o "dist/lib/noteToMarkdown.js"');
 run('npx --no-install terser "lib/convertPanel.js" -c -m -o "dist/lib/convertPanel.js"');
 run('npx --no-install terser "options/options.js" -c -m -o "dist/options/options.js"');
@@ -138,6 +139,7 @@ const expectedOutputs = [
   "content/content.js",
   "lib/i18n.js",
   "lib/likeCount.js",
+  "lib/noteStats.js",
   "lib/noteToMarkdown.js",
   "_locales/ja/messages.json",
   "_locales/en/messages.json",

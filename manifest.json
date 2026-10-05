@@ -44,6 +44,7 @@
       "js": [
         "lib/i18n.js",
         "lib/noteToMarkdown.js",
+        "lib/noteStats.js",
         "content/content.js"
       ],
       "run_at": "document_idle"

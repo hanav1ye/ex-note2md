@@ -252,12 +252,14 @@ test("スキ数更新ボタンはオプション画面へ実行を引き継ぐ",
   assert.equal(opened, true, "オプション画面が開かれていません");
 });
 
-test("スキ数更新ボタンに用途が分かるツールチップを付ける", async () => {
+test("数値更新ボタンに用途が分かるツールチップを付ける", async () => {
   const { doc } = await loadPopup();
-  assert.match(doc.getElementById("likeCountBtn").getAttribute("title"), /スキ数を更新/);
+  const title = doc.getElementById("likeCountBtn").getAttribute("title");
+  assert.match(title, /スキ数/);
+  assert.match(title, /ページビュー数/, "更新対象が3つになったことが分かる必要があります");
 
   const { doc: en } = await loadPopup({ uiLanguage: "en" });
-  assert.match(en.getElementById("likeCountBtn").getAttribute("title"), /Refresh like counts/);
+  assert.match(en.getElementById("likeCountBtn").getAttribute("title"), /page views/);
 });
 
 /* ---------------------------- プリセットの件数 ---------------------------- */

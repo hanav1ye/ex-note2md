@@ -17,6 +17,7 @@ export default [
         NoteToMarkdown: "readonly",
         NtmI18n: "readonly",
         NtmLikeCount: "readonly",
+        NtmNoteStats: "readonly",
       },
     },
     linterOptions: {

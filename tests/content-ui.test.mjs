@@ -20,7 +20,7 @@ const PAGE_HTML = `<!doctype html><html><body>
  * @param {{store?: object, html?: string}} [options={}] - chrome.storage.local の初期値とページHTML。
  * @returns {{win: import("jsdom").DOMWindow, send: Function, downloads: string[]}} テスト環境。
  */
-const loadContentScript = ({ store = {}, html = PAGE_HTML } = {}) => {
+const loadContentScript = ({ store = {}, html = PAGE_HTML, noteStats } = {}) => {
   const dom = new JSDOM(html, {
     url: "https://note.com/hanaviye",
     runScripts: "outside-only",
@@ -89,6 +89,12 @@ const loadContentScript = ({ store = {}, html = PAGE_HTML } = {}) => {
   };
 
   win.eval(readSource("lib", "i18n.js"));
+  if (noteStats) {
+    // 既定では実物を読み込まず、ダッシュボード取得だけを差し替える。
+    win.NtmNoteStats = noteStats;
+  } else {
+    win.eval(readSource("lib", "noteStats.js"));
+  }
   win.eval(readSource("content", "content.js"));
 
   const send = (message, sender = { id: "test-extension-id" }) =>
@@ -541,4 +547,68 @@ test("一括処理の結果に有料記事の件数を出す", async () => {
   await flush(700);
 
   assert.match(toastText(win), /新規保存 2件 \/ 上書き 0件 \/ 失敗 0件 \/ 有料記事 1件（無料公開部分のみ）/);
+});
+
+/* --------------------- ダッシュボードの数値の取得依頼 --------------------- */
+
+test("オプション画面からの依頼で記事別の数値を返す", async () => {
+  const { send } = loadContentScript({
+    noteStats: {
+      fetchAllStats: async () => ({
+        ok: true,
+        rows: [{ noteId: "n111", pageViewCount: 12, impressionCount: 34 }],
+        statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+      }),
+    },
+  });
+
+  const response = await send({ type: "fetchNoteStats" });
+  assert.equal(response.ok, true);
+  assert.equal(response.rows.length, 1);
+  assert.equal(response.rows[0].noteId, "n111");
+  assert.equal(response.statsUpdatedAt, "2026-10-05T07:00:00+09:00");
+});
+
+test("未ログインなら理由が分かるエラーを返す", async () => {
+  const { send } = loadContentScript({
+    noteStats: { fetchAllStats: async () => ({ ok: false, code: "not-logged-in" }) },
+  });
+  const response = await send({ type: "fetchNoteStats" });
+  assert.equal(response.ok, false);
+  assert.equal(response.code, "not-logged-in");
+  assert.match(response.error, /ログインしていない/);
+});
+
+test("取得中の例外は失敗として返し、ページを壊さない", async () => {
+  const { send } = loadContentScript({
+    noteStats: {
+      fetchAllStats: async () => {
+        throw new Error("network");
+      },
+    },
+  });
+  const response = await send({ type: "fetchNoteStats" });
+  assert.equal(response.ok, false);
+  assert.equal(response.code, "fetch-failed");
+  assert.match(response.error, /取得できませんでした/);
+});
+
+test("認証切れの例外は未ログインとして扱う", async () => {
+  const { send } = loadContentScript({
+    noteStats: {
+      fetchAllStats: async () => {
+        throw new Error("unauthenticated");
+      },
+    },
+  });
+  const response = await send({ type: "fetchNoteStats" });
+  assert.equal(response.code, "not-logged-in");
+});
+
+test("他の拡張機能からの数値取得依頼は処理しない", async () => {
+  const { send } = loadContentScript({
+    noteStats: { fetchAllStats: async () => ({ ok: true, rows: [], statsUpdatedAt: null }) },
+  });
+  const response = await send({ type: "fetchNoteStats" }, { id: "other-extension-id" });
+  assert.equal(response, undefined);
 });

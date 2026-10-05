@@ -968,3 +968,123 @@ test("スキ数更新の対象にも5つ目のプリセットが並ぶ", async (
   assert.equal(select.options.length, 1);
   assert.equal(select.value, "preset5");
 });
+
+/* ---------------- ダッシュボードの数値（ページビュー等）の反映 ---------------- */
+
+/**
+ * note.com タブの content script からの応答を差し替える。
+ * @param {import("jsdom").DOMWindow} win - 対象ウィンドウ。
+ * @param {{tabs?: object[], respond?: Function}} options - 差し替え内容。
+ * @returns {object[]} 送られたメッセージの記録。
+ */
+const stubNoteTab = (win, { tabs = [{ id: 7, url: "https://note.com/hanaviye" }], respond } = {}) => {
+  const sent = [];
+  win.chrome.tabs.query = async (query) => {
+    sent.push({ query });
+    return tabs;
+  };
+  win.chrome.tabs.sendMessage = async (tabId, message) => {
+    sent.push({ tabId, message });
+    return respond ? respond(message) : { ok: true, rows: [], statsUpdatedAt: null };
+  };
+  return sent;
+};
+
+test("ページビュー数・インプレッション数を frontmatter へ書き込む", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  const sent = stubNoteTab(win, {
+    respond: () => ({
+      ok: true,
+      rows: [{ noteId: "nabc123", pageViewCount: 340, impressionCount: 5600 }],
+      statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+    }),
+  });
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.match(file.state.contents, /^like_count: 55$/m, "スキ数は公開APIの現在値を使います");
+  assert.match(file.state.contents, /^page_view_count: 340$/m);
+  assert.match(file.state.contents, /^impression_count: 5600$/m);
+  assert.match(file.state.contents, /^stats_updated_at: 2026-10-05T07:00:00\+09:00$/m);
+  assert.match(file.state.contents, /^# 記事$/m, "本文が壊れています");
+
+  assert.equal(sent[0].query.url, "https://note.com/*", "note.com のタブを探します");
+  assert.equal(sent[1].message.type, "fetchNoteStats");
+  assert.match(doc.getElementById("likeCountStatus").textContent, /ページビュー数まで更新 1件/);
+});
+
+test("ダッシュボードに無い記事はスキ数だけ更新する", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  stubNoteTab(win, { respond: () => ({ ok: true, rows: [], statsUpdatedAt: "2026-10-05T07:00:00+09:00" }) });
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.match(file.state.contents, /^like_count: 55$/m);
+  assert.doesNotMatch(file.state.contents, /page_view_count/);
+  assert.doesNotMatch(file.state.contents, /stats_updated_at/);
+});
+
+test("note.com のタブが無ければ実行せず、ファイルも書き換えない", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  stubNoteTab(win, { tabs: [] });
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.equal(file.state.writes, 0, "数値が取れないときは1件も書き換えません");
+  assert.match(doc.getElementById("likeCountStatus").textContent, /note\.com のタブが見つかりません/);
+});
+
+test("未ログインなら実行せず、ファイルも書き換えない", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  stubNoteTab(win, {
+    respond: () => ({ ok: false, code: "not-logged-in", error: "ログインしていないため取得できません" }),
+  });
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.equal(file.state.writes, 0);
+  assert.match(doc.getElementById("likeCountStatus").textContent, /ログインしていない/);
+});
+
+test("content script と通信できないタブなら案内して終わる", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  win.chrome.tabs.query = async () => [{ id: 7, url: "https://note.com/hanaviye" }];
+  win.chrome.tabs.sendMessage = async () => {
+    throw new Error("Could not establish connection");
+  };
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.equal(file.state.writes, 0);
+  assert.match(doc.getElementById("likeCountStatus").textContent, /再読み込み/);
+});

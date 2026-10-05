@@ -36,7 +36,7 @@ note.com の記事を Markdown 形式に変換する拡張機能です。Obsidia
 ・指定ワードを [[単語]] 形式に変換する Obsidian 向けリンク化
 ・UI の日本語 / 英語切り替え（既定はブラウザの表示言語に追従）
 ・タグと Obsidian 設定を JSON ファイルでエクスポート / インポート
-・保存済みの .md に記録したスキ数を、note の最新値へ一括更新
+・保存済みの .md のスキ数・ページビュー数・インプレッション数を、note の最新値へ一括更新
 ・同じ画面をサイドパネルに常設。タブを移動しても閉じません
 
 ■ 変換に対応している要素
@@ -58,12 +58,57 @@ frontmatter にはタイトル・URL・note ID・著者・公開日・スキ数�
 変換したコンテンツの利用は、note の利用規約および著作権法の範囲内で行ってください。
 ```
 
+## 「ログイン状態の利用」についての説明
+
+「プライバシーへの取り組み」タブで、ログインセッションの利用について問われた場合に使う文面。
+
+```
+「数値を更新」機能で、利用者自身の記事のページビュー数・インプレッション数を取得する場合にのみ、
+利用者が note.com にログインしている状態を利用します。
+
+これらの数値は note のダッシュボードにのみ存在し、公開 API では取得できません。そのため、
+利用者が開いている note.com のページ上で、note 自身のダッシュボードと同じ手順で一時トークン
+（有効期限30分）を note から発行してもらい、それを用いて note のサブドメインへ問い合わせます。
+
+・送信先は note.com およびそのサブドメイン（graphql.note.com）のみです。開発者のサーバーや
+  第三者へ送信することはありません。開発者が運営するサーバーは存在しません。
+・取得するのは利用者自身の記事のページビュー数・インプレッション数と、その集計日時だけです。
+  売上金額は問い合わせに含めていないため、受け取ってもいません。
+・パスワードの読み取りは行いません。ログイン状態の確認は note 自身が行い、本拡張機能は
+  その結果として発行されたトークンを使うだけです。トークンは保存しません。
+・利用者がこの機能を実行しない限り、この通信は一切発生しません。
+・記事の変換と画像の取得は、従来どおり認証情報を伴わない形（credentials: "omit"）で行います。
+```
+
+英語版:
+
+```
+The extension uses the user's logged-in note.com session only for the "Refresh stats" feature,
+to read page view and impression counts for the user's own articles.
+
+These numbers exist only in note's dashboard and are not available from any public API. The
+extension therefore asks note to issue a short-lived token (valid for 30 minutes) from within a
+note.com page the user already has open — the same sequence note's own dashboard performs — and
+uses that token to query note's own subdomain.
+
+- Requests go only to note.com and its subdomain (graphql.note.com). Nothing is sent to the
+  developer or any third party; the developer operates no server.
+- Only the user's own page view and impression counts, plus the aggregation timestamp, are
+  requested. Sales figures are not included in the query and are never received.
+- The extension never reads passwords. note itself verifies the session; the extension only uses
+  the token note issues as a result. The token is not stored.
+- No such request happens unless the user runs this feature.
+- Article conversion and image fetching continue to use no credentials (credentials: "omit").
+```
+
 ## 更新内容（1.2.0）
 
 ストアの「更新内容」欄にそのまま貼る。
 
 ```
 1.2.0
+・「スキ数を更新」を「数値を更新」に変更し、ページビュー数とインプレッション数も
+　まとめて更新するように（自分の記事のみ・ログイン済みの note.com のタブが必要です）
 ・表（table）を Markdown の表として出力するように
 ・有料記事は無料公開部分だけを変換し、続きが有料であることを本文と画面に明記
 ・引用の入れ子を「> >」で出力するように
@@ -81,7 +126,7 @@ frontmatter にはタイトル・URL・note ID・著者・公開日・スキ数�
 1.1.0
 ・UI の英語表示に対応（自動 / 日本語 / English を設定画面で切り替え）
 ・タグ候補・タグセット・Obsidian 設定を JSON でエクスポート / インポート
-・保存済みの .md のスキ数（like_count）を note の最新値へ一括更新
+・保存済みの .md のスキ数・ページビュー数・インプレッション数を note の最新値へ一括更新
 ・popup と同じ画面をサイドパネルに常設できるように（タブを移動しても閉じません）
 ・保存先プリセットを 3 → 5 に拡張
 ・マガジンページで複数選択したときに記事名が「タイトル不明」になる不具合を修正
@@ -105,7 +150,7 @@ note.com の記事を Markdown 形式に変換し、クリップボードへコ�
 | `clipboardWrite` | 変換した Markdown をユーザーのクリップボードへコピーするために使用します。 |
 | `storage` | 変換設定（変換元・変換後の選択、タグ候補、タグセット、保存先プリセット名、画像取込方式、Obsidian連携の設定、表示言語）を端末内に保存するために使用します。外部への送信は行いません。 |
 | `sidePanel` | 変換画面をブラウザのサイドパネルに表示するために使用します。popup と同じ画面をページ操作中も開いたままにするための UI 用途で、データへのアクセスは伴いません。 |
-| `https://note.com/*` のホスト権限 | 変換対象として指定された note 記事のHTMLを取得し、本文を Markdown に変換するために使用します。また「スキ数を更新」を実行した場合に、公開 API（`/api/v3/notes/`）から記事のスキ数を取得します。いずれも認証情報を送らず（`credentials: "omit"`）、記事の情報を読むだけです。 |
+| `https://note.com/*` のホスト権限 | 変換対象として指定された note 記事のHTMLを取得し、本文を Markdown に変換するために使用します。また「数値を更新」を実行した場合に、公開 API（`/api/v3/notes/`）から記事のスキ数を取得し（認証情報を送らず `credentials: "omit"`）、あわせて利用者自身の記事のページビュー数・インプレッション数を取得します。後者は note のダッシュボードにしかない数値のため、note.com 上で note 自身のダッシュボードと同じ手順で一時トークンを発行してもらい、それを用いて `graphql.note.com` へ問い合わせます。送信先は note.com とそのサブドメインのみで、取得するのは利用者自身の記事の閲覧数と集計日時だけです。売上金額は要求していません。 |
 | `https://assets.st-note.com/*` のホスト権限 | 画像取込方式で「画像ダウンロード」または「Base64埋込」が選択されている場合に、記事内の画像を取得するために使用します。note の画像配信ドメインです。 |
 
 リモートコードの使用: **なし**（すべてのコードは拡張機能パッケージに同梱、外部スクリプトの読み込みなし）
@@ -192,12 +237,14 @@ externally. All processing happens locally on the user's device.
 | 個人を特定できる情報 | 収集しない |
 | 健康情報 | 収集しない |
 | 財務情報・支払い情報 | 収集しない |
-| 認証情報 | 収集しない |
+| 認証情報 | 収集しない（「数値を更新」では note が発行する一時トークンを note 自身への問い合わせに使うだけで、保存も外部送信もしない。パスワードは読み取らない） |
 | 個人的な通信 | 収集しない |
 | 位置情報 | 収集しない |
 | ウェブ閲覧履歴 | 収集しない |
 | ユーザーのアクティビティ | 収集しない |
 | ウェブサイトのコンテンツ | 収集しない（変換処理は端末内で完結し、記事内容を送信しない） |
+
+「数値を更新」で note.com へ問い合わせる通信は、利用者自身の記事の閲覧数を note から**受け取る**ものであり、利用者のデータを開発者や第三者へ**送る**ものではない。開発者が運営するサーバーは存在しない。詳細は上の「「ログイン状態の利用」についての説明」を参照。
 
 証明事項（3項目すべてにチェック）:
 - 承認された用途に該当しないデータの第三者への販売・譲渡を行っていない

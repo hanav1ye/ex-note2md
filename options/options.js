@@ -1080,9 +1080,49 @@ const confirmLikeCountUpdate = (summary) =>
  * @param {object[]} targets - planUpdates が返した更新対象。
  * @param {number} skippedCount - note_id を解決できなかった件数。
  */
-const applyLikeCountUpdates = async (targets, skippedCount) => {
+/**
+ * ダッシュボードの数値（ページビュー・インプレッション）を content script 経由で取得する。
+ *
+ * この取得だけは note.com オリジンで行う必要があるため、オプション画面からは直接叩けない。
+ * ログイン済みの note.com タブへ依頼する（docs/research/view-count.md）。
+ * タブを開くなどの操作はこちらからは行わず、見つからなければ案内して終わる。
+ * @returns {Promise<{ok: true, byNoteId: Map<string, object>, statsUpdatedAt: string|null}|{ok: false, error: string}>} 取得結果。
+ */
+const fetchDashboardStats = async () => {
+  // url 絞り込みは note.com のホスト権限で足りる（tabs 権限は要求していない）。
+  const tabs = await chrome.tabs.query({ url: "https://note.com/*" });
+  const tab = tabs.find((candidate) => typeof candidate.id === "number");
+  if (!tab) {
+    return { ok: false, error: t("stats.error.noNoteTab") };
+  }
+
+  setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.fetchingStats"));
+
+  let response;
+  try {
+    response = await chrome.tabs.sendMessage(tab.id, { type: "fetchNoteStats" });
+  } catch {
+    // content script が読み込まれていないタブ（拡張の更新直後など）。
+    return { ok: false, error: t("stats.error.tabUnreachable") };
+  }
+
+  if (!response?.ok) {
+    return { ok: false, error: response?.error ?? t("stats.error.fetchFailed") };
+  }
+
+  const byNoteId = new Map();
+  for (const row of response.rows ?? []) {
+    if (row?.noteId) {
+      byNoteId.set(row.noteId, row);
+    }
+  }
+  return { ok: true, byNoteId, statsUpdatedAt: response.statsUpdatedAt ?? null };
+};
+
+const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
   // 同じ記事が複数ファイルにある場合に API を二度叩かないようにする。
   const likeCountCache = new Map();
+  let withStats = 0;
   let updated = 0;
   let unchanged = 0;
   let mismatched = 0;
@@ -1110,12 +1150,17 @@ const applyLikeCountUpdates = async (targets, skippedCount) => {
       // 走査時の内容ではなく、書き込む直前に読み直した内容を土台にする。
       // 実行中にユーザーがそのファイルを編集していても、その編集を消さないため。
       const freshContent = await (await target.handle.getFile()).text();
-      const result = NtmLikeCount.buildUpdatedContent(
-        freshContent,
-        target.name,
-        target.noteId,
-        likeCount
-      );
+      // ダッシュボードは自分の記事しか返さない。無い記事はスキ数だけを更新する。
+      const row = dashboard?.byNoteId.get(target.noteId);
+      if (row) {
+        withStats += 1;
+      }
+      const result = NtmLikeCount.buildUpdatedContentWithStats(freshContent, target.name, target.noteId, {
+        likeCount,
+        pageViewCount: row?.pageViewCount ?? null,
+        impressionCount: row?.impressionCount ?? null,
+        statsUpdatedAt: dashboard?.statsUpdatedAt ?? null,
+      });
 
       // 走査後に別物へ変わったファイルには触らない。
       if (result.status === "mismatch") {
@@ -1156,7 +1201,7 @@ const applyLikeCountUpdates = async (targets, skippedCount) => {
       unchanged,
       skipped: skippedCount + mismatched,
       failed,
-    })
+    }) + (withStats > 0 ? t("options.likeCount.doneStatsNote", { count: withStats }) : "")
   );
 };
 
@@ -1212,7 +1257,19 @@ const runLikeCountUpdate = async ({ canRequestPermission = true } = {}) => {
       return;
     }
 
-    await applyLikeCountUpdates(targets, skipped.length);
+    // 数値の取得はファイルを 1 つも書き換える前に行う。
+    // ここで失敗したら、スキ数だけ更新して終わるのではなく実行自体をやめる。
+    const dashboard = await fetchDashboardStats();
+    if (!dashboard.ok) {
+      setStatus(STATUS_TARGETS.likeCount, dashboard.error);
+      return;
+    }
+    setStatus(
+      STATUS_TARGETS.likeCount,
+      t("options.likeCount.statsFetched", { count: dashboard.byNoteId.size })
+    );
+
+    await applyLikeCountUpdates(targets, skipped.length, dashboard);
   } catch (error) {
     if (error?.name !== "AbortError") {
       setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.failed"));
