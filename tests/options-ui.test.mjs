@@ -1088,3 +1088,57 @@ test("content script と通信できないタブなら案内して終わる", as
   assert.equal(file.state.writes, 0);
   assert.match(doc.getElementById("likeCountStatus").textContent, /再読み込み/);
 });
+
+test("content script と通信できないタブは飛ばして次のタブを試す", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+
+  const tried = [];
+  win.chrome.tabs.query = async () => [
+    { id: 1, url: "https://note.com/old-tab" },
+    { id: 2, url: "https://note.com/hanaviye" },
+  ];
+  win.chrome.tabs.sendMessage = async (tabId) => {
+    tried.push(tabId);
+    if (tabId === 1) {
+      throw new Error("Could not establish connection");
+    }
+    return {
+      ok: true,
+      rows: [{ noteId: "nabc123", pageViewCount: 340, impressionCount: 5600 }],
+      statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+    };
+  };
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.deepEqual(tried, [1, 2], "1つ目で諦めています");
+  assert.match(file.state.contents, /^page_view_count: 340$/m);
+});
+
+test("取得を途中で打ち切ったことを結果に出す", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  stubNoteTab(win, {
+    respond: () => ({
+      ok: true,
+      rows: [{ noteId: "nabc123", pageViewCount: 1, impressionCount: 2 }],
+      statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+      truncated: true,
+    }),
+  });
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.match(doc.getElementById("likeCountStatus").textContent, /途中で打ち切り/);
+});

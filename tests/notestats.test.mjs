@@ -274,3 +274,38 @@ test("ページ数の上限で打ち切る（無限ループしない）", async
   assert.equal(calls, stats.MAX_PAGES);
   assert.equal(result.truncated, true);
 });
+
+/* ---------------------------- 想定外の値の扱い ---------------------------- */
+
+test("件数として受け付けるのは 0 以上の整数だけ", () => {
+  const { stats } = loadNoteStats();
+  assert.equal(stats.toCount(0), 0);
+  assert.equal(stats.toCount(340), 340);
+  assert.equal(stats.toCount(-1), null, "負数は件数になりません");
+  assert.equal(stats.toCount(1.5), null, "小数は件数になりません");
+  assert.equal(stats.toCount("340"), null, "文字列は受け付けません");
+  assert.equal(stats.toCount(null), null);
+  assert.equal(stats.toCount(undefined), null);
+});
+
+test("応答に想定外の型が来ても値なしとして扱う", () => {
+  const { stats } = loadNoteStats();
+  const parsed = stats.parseStatsResponse({
+    data: {
+      dashboardNoteListConnection: {
+        pageInfo: {},
+        edges: [
+          { node: { note: { key: "n1" }, metrics: { pageViewCount: "120", impressionCount: -5 } } },
+          { node: { note: { key: "n2" }, metrics: { pageViewCount: 1.5, impressionCount: 7 } } },
+        ],
+      },
+    },
+  });
+  assert.deepEqual(
+    parsed.rows.map((r) => [r.noteId, r.pageViewCount, r.impressionCount]),
+    [
+      ["n1", null, null],
+      ["n2", null, 7],
+    ]
+  );
+});

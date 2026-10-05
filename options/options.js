@@ -1091,23 +1091,35 @@ const confirmLikeCountUpdate = (summary) =>
 const fetchDashboardStats = async () => {
   // url 絞り込みは note.com のホスト権限で足りる（tabs 権限は要求していない）。
   const tabs = await chrome.tabs.query({ url: "https://note.com/*" });
-  const tab = tabs.find((candidate) => typeof candidate.id === "number");
-  if (!tab) {
+  const tabIds = tabs.map((candidate) => candidate.id).filter((id) => typeof id === "number");
+  if (tabIds.length === 0) {
     return { ok: false, error: t("stats.error.noNoteTab") };
   }
 
   setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.fetchingStats"));
 
-  let response;
-  try {
-    response = await chrome.tabs.sendMessage(tab.id, { type: "fetchNoteStats" });
-  } catch {
-    // content script が読み込まれていないタブ（拡張の更新直後など）。
-    return { ok: false, error: t("stats.error.tabUnreachable") };
+  /*
+   * 拡張を更新した直後のタブには content script が入っておらず、通信できない。
+   * 先頭のタブだけで諦めると、使えるタブが他にあっても失敗するので順に試す。
+   * 「通信できない」以外の失敗（未ログインなど）は、どのタブでも同じ結果になるため即座に返す。
+   */
+  let response = null;
+  let unreachable = 0;
+  for (const tabId of tabIds) {
+    try {
+      response = await chrome.tabs.sendMessage(tabId, { type: "fetchNoteStats" });
+    } catch {
+      unreachable += 1;
+      continue;
+    }
+    break;
   }
 
-  if (!response?.ok) {
-    return { ok: false, error: response?.error ?? t("stats.error.fetchFailed") };
+  if (!response) {
+    return { ok: false, error: t("stats.error.tabUnreachable"), unreachable };
+  }
+  if (!response.ok) {
+    return { ok: false, error: response.error ?? t("stats.error.fetchFailed") };
   }
 
   const byNoteId = new Map();
@@ -1116,7 +1128,12 @@ const fetchDashboardStats = async () => {
       byNoteId.set(row.noteId, row);
     }
   }
-  return { ok: true, byNoteId, statsUpdatedAt: response.statsUpdatedAt ?? null };
+  return {
+    ok: true,
+    byNoteId,
+    statsUpdatedAt: response.statsUpdatedAt ?? null,
+    truncated: Boolean(response.truncated),
+  };
 };
 
 const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
@@ -1201,7 +1218,9 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
       unchanged,
       skipped: skippedCount + mismatched,
       failed,
-    }) + (withStats > 0 ? t("options.likeCount.doneStatsNote", { count: withStats }) : "")
+    }) +
+      (withStats > 0 ? t("options.likeCount.doneStatsNote", { count: withStats }) : "") +
+      (dashboard?.truncated ? t("options.likeCount.statsTruncated") : "")
   );
 };
 
@@ -1268,6 +1287,10 @@ const runLikeCountUpdate = async ({ canRequestPermission = true } = {}) => {
       STATUS_TARGETS.likeCount,
       t("options.likeCount.statsFetched", { count: dashboard.byNoteId.size })
     );
+    // 取得を途中で打ち切った場合、数値が入らない記事が出るので黙って進めない。
+    if (dashboard.truncated) {
+      console.warn(`[note→Markdown] ${t("options.likeCount.statsTruncated")}`);
+    }
 
     await applyLikeCountUpdates(targets, skipped.length, dashboard);
   } catch (error) {

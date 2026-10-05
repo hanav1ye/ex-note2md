@@ -388,3 +388,21 @@ test("書き込み直前の検査は数値付きでも効く（別記事なら�
   const unchanged = lib.buildUpdatedContentWithStats(ok.content, "n111.md", "n111", stats);
   assert.equal(unchanged.status, "unchanged", "同じ値なら書き込みません");
 });
+
+test("件数として不正な値は書き込まない", () => {
+  const lib = loadLikeCount();
+  for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5, "340", null]) {
+    const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
+      pageViewCount: value,
+      statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+    });
+    assert.doesNotMatch(next, /page_view_count/, `${String(value)} を書き込んでいます`);
+    assert.doesNotMatch(next, /stats_updated_at/, `${String(value)} で集計日時だけ書き込んでいます`);
+  }
+  // 0 は正当な件数なので書き込む
+  const zero = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
+    pageViewCount: 0,
+    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+  });
+  assert.match(zero, /^page_view_count: 0$/m);
+});
