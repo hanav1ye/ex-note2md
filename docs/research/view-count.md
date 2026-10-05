@@ -190,6 +190,33 @@ content script が必要なので、ログイン済みの note.com タブが開�
 
 アカウント全体の合計を返す `dashboardSummary`（`periodLabel` / `metrics` / `lastUpdatedAt`）は使わない。
 
+### 7. ボタンは 1 つにまとめ、ログイン必須にする
+
+既存の「スキ数を更新」を**「数値を更新」に変更**し、1 回の実行で
+`like_count` / `page_view_count` / `impression_count` の 3 つを更新する。
+ボタンは増やさない（popup / サイドパネルのヘッダ、オプション画面のいずれも既存の位置のまま）。
+
+ログイン済みの note.com タブが無い場合は**実行せず、「note.com を開いてから実行してください」と案内して終わる**
+（決定事項 5 のとおり、こちらからタブは開かない）。
+
+**受け入れたトレードオフ:** 現在できている「note.com を開かずにスキ数だけ更新する」ができなくなる。
+ログイン不要でスキ数だけ更新したい場合は、CLI の `npm run update-like-count`
+（`scripts/update-like-count.mjs`・公開 API のみ・`credentials: "omit"`）が従来どおり使える。
+
+実行経路:
+
+```
+オプション画面（フォルダの読み書き・進捗・確認ダイアログ）
+  └ chrome.tabs.query で note.com のタブを探す
+      └ content script（note.com オリジン）
+          ├ POST /api/v3/graphql/auth           → note_gql_auth_token（JWT・30分）
+          └ POST graphql.note.com/graphql       → 記事別の PV / インプレッション
+  └ 記事ごとに /api/v3/notes/{id}（公開 API）   → 現在のスキ数
+  └ 再読み込みしてから frontmatter を書き換え（既存の TOCTOU 対策をそのまま使う）
+```
+
+content script は `https://note.com/*` 全体にマッチしているので、記事ページでなくてもよい。
+
 ## 未確認（ログイン済みセッションが必要）
 
 - ログイン済みトークン（`gu: false`）で `dashboardNoteListConnection` が自分の記事を返すこと
