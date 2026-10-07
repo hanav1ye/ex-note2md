@@ -265,3 +265,144 @@ test("値が変わらないなら書き込み対象にしない", () => {
   const result = lib.buildUpdatedContent(ARTICLE, "nabc123.md", "nabc123", 10);
   assert.equal(result.status, "unchanged");
 });
+
+/* ------------------- ダッシュボード由来の数値の書き込み ------------------- */
+
+const FRONTMATTER_SAMPLE = [
+  "---",
+  'title: "テスト記事"',
+  "source: https://note.com/hanaviye/n/n111",
+  "note_id: n111",
+  "author: hanaviye",
+  "published: 2026-01-01T00:00:00+09:00",
+  "like_count: 10",
+  "---",
+  "",
+  "# テスト記事",
+  "",
+  "本文",
+].join("\n");
+
+test("ページビュー数とインプレッション数を like_count の後ろへ足す", () => {
+  const lib = loadLikeCount();
+  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
+    likeCount: 12,
+    pageViewCount: 340,
+    impressionCount: 5600,
+    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+  });
+  const lines = next.split("\n");
+  assert.deepEqual(lines.slice(6, 10), [
+    "like_count: 12",
+    "page_view_count: 340",
+    "impression_count: 5600",
+    "stats_updated_at: 2026-10-05T07:00:00+09:00",
+  ]);
+  assert.match(next, /\n# テスト記事\n/, "本文を壊していません");
+});
+
+test("2回実行しても行が増えず、値だけ入れ替わる", () => {
+  const lib = loadLikeCount();
+  const stats = { likeCount: 12, pageViewCount: 340, impressionCount: 5600, statsUpdatedAt: "2026-10-05T07:00:00+09:00" };
+  const once = lib.applyStatsToContent(FRONTMATTER_SAMPLE, stats);
+  const twice = lib.applyStatsToContent(once, { ...stats, pageViewCount: 999 });
+  assert.equal(twice.match(/^page_view_count:/gm).length, 1);
+  assert.match(twice, /^page_view_count: 999$/m);
+  assert.equal(twice.split("\n").length, once.split("\n").length);
+});
+
+test("取れなかった数値はキーを足さない（他人の記事）", () => {
+  const lib = loadLikeCount();
+  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
+    likeCount: 12,
+    pageViewCount: null,
+    impressionCount: null,
+    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+  });
+  assert.match(next, /^like_count: 12$/m);
+  assert.doesNotMatch(next, /page_view_count/);
+  assert.doesNotMatch(next, /impression_count/);
+  assert.doesNotMatch(next, /stats_updated_at/, "数値が無いなら集計日時も書きません");
+});
+
+test("インプレッションだけ取れない記事ではページビューだけ書く", () => {
+  const lib = loadLikeCount();
+  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
+    likeCount: 12,
+    pageViewCount: 340,
+    impressionCount: null,
+    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+  });
+  assert.match(next, /^page_view_count: 340$/m);
+  assert.doesNotMatch(next, /impression_count/);
+  assert.match(next, /^stats_updated_at: /m);
+});
+
+test("既にある impression_count は取れなくても消さない", () => {
+  const lib = loadLikeCount();
+  const withImpression = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
+    pageViewCount: 1,
+    impressionCount: 2,
+    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+  });
+  const next = lib.applyStatsToContent(withImpression, { pageViewCount: 5, impressionCount: null });
+  assert.match(next, /^impression_count: 2$/m);
+  assert.match(next, /^page_view_count: 5$/m);
+});
+
+test("like_count が無い frontmatter でも published の後ろに並ぶ", () => {
+  const lib = loadLikeCount();
+  const source = FRONTMATTER_SAMPLE.replace("like_count: 10\n", "");
+  const next = lib.applyStatsToContent(source, { pageViewCount: 7, impressionCount: 8, statsUpdatedAt: "2026-10-05T07:00:00+09:00" });
+  const lines = next.split("\n");
+  const published = lines.findIndex((line) => line.startsWith("published:"));
+  assert.deepEqual(lines.slice(published + 1, published + 3), ["page_view_count: 7", "impression_count: 8"]);
+});
+
+test("frontmatter が無いファイルは触らない", () => {
+  const lib = loadLikeCount();
+  const plain = "# 見出しだけのファイル\n\n本文";
+  assert.equal(lib.applyStatsToContent(plain, { pageViewCount: 1 }), plain);
+});
+
+test("想定外の集計日時はクォートして frontmatter を壊さない", () => {
+  const lib = loadLikeCount();
+  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
+    pageViewCount: 1,
+    statsUpdatedAt: 'broken: "value"',
+  });
+  assert.match(next, /^stats_updated_at: "broken: \\"value\\""$/m);
+});
+
+test("書き込み直前の検査は数値付きでも効く（別記事なら触らない）", () => {
+  const lib = loadLikeCount();
+  const stats = { likeCount: 12, pageViewCount: 1, impressionCount: 2, statsUpdatedAt: "2026-10-05T07:00:00+09:00" };
+
+  const ok = lib.buildUpdatedContentWithStats(FRONTMATTER_SAMPLE, "n111.md", "n111", stats);
+  assert.equal(ok.status, "ok");
+
+  const mismatch = lib.buildUpdatedContentWithStats(FRONTMATTER_SAMPLE, "n111.md", "n999", stats);
+  assert.equal(mismatch.status, "mismatch");
+  assert.equal(mismatch.content, FRONTMATTER_SAMPLE, "内容は変えません");
+
+  const unchanged = lib.buildUpdatedContentWithStats(ok.content, "n111.md", "n111", stats);
+  assert.equal(unchanged.status, "unchanged", "同じ値なら書き込みません");
+});
+
+test("件数として不正な値は書き込まない", () => {
+  const lib = loadLikeCount();
+  for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5, "340", null]) {
+    const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
+      pageViewCount: value,
+      statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+    });
+    assert.doesNotMatch(next, /page_view_count/, `${String(value)} を書き込んでいます`);
+    assert.doesNotMatch(next, /stats_updated_at/, `${String(value)} で集計日時だけ書き込んでいます`);
+  }
+  // 0 は正当な件数なので書き込む
+  const zero = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
+    pageViewCount: 0,
+    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+  });
+  assert.match(zero, /^page_view_count: 0$/m);
+});
