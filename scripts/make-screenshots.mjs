@@ -274,12 +274,12 @@ const SAMPLE_FRONTMATTER = [
   ["note_id", "n0123456789ab", "text"],
   ["author", "sample_user", "text"],
   ["published", "2026-06-04T09:00:00+09:00", "date"],
-  ["like_count", "46", "number"],
-  ["page_view_count", "120", "number"],
-  ["impression_count", "2949", "number"],
+  ["like_count", "128", "number"],
+  ["page_view_count", "1024", "number"],
+  ["impression_count", "4096", "number"],
   ["stats_updated_at", "2026-10-05T07:00:00.000Z", "date"],
   ["tags", "エンジニア / 学習メモ / 技術検証", "tags"],
-  ["converted_at", "2026-09-17T13:31:39.096+09:00", "date"],
+  ["converted_at", "2026-10-05T10:00:00.000+09:00", "date"],
 ];
 
 /** 種別ごとの記号。特定のアプリの意匠を真似ず、種別が分かる程度にとどめる。 */
