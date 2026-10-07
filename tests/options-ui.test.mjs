@@ -1142,3 +1142,41 @@ test("取得を途中で打ち切ったことを結果に出す", async () => {
 
   assert.match(doc.getElementById("likeCountStatus").textContent, /途中で打ち切り/);
 });
+
+test("更新ボタンで published が時刻入りへ揃う", async () => {
+  const dateOnly = articleMarkdown("nabc123", 10).replace("published: 2026-04-29", "published: 2026-04-29");
+  const file = createMarkdownFile("nabc123.md", dateOnly);
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  // 公開日時を返す応答に差し替える（スキ数と同じ応答に入っている）
+  win.fetch = async () => ({
+    ok: true,
+    json: async () => ({ data: { like_count: 55, publish_at: "2026-04-29T16:24:54.000+09:00" } }),
+  });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.match(file.state.contents, /^published: 2026-04-29T16:24:54$/m);
+  assert.match(file.state.contents, /^like_count: 55$/m);
+  assert.equal(file.state.contents.match(/^published:/gm).length, 1, "行が増えています");
+});
+
+test("公開日時を返さない応答なら published を変えない", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.match(file.state.contents, /^published: 2026-04-29$/m, "元の値を変えています");
+});

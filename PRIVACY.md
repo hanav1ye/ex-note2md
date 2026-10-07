@@ -55,7 +55,7 @@
 | 機能 | 動作 |
 |------|------|
 | ダウンロード | 選択されたフォルダへ `.md` ファイルと画像を書き込む |
-| 数値を更新 | 選択されたフォルダ配下の `.md` を読み取り、frontmatter の `like_count` / `page_view_count` / `impression_count` / `stats_updated_at` だけを書き換える |
+| 数値を更新 | 選択されたフォルダ配下の `.md` を読み取り、frontmatter の `like_count` / `published` / `page_view_count` / `impression_count` / `stats_updated_at` だけを書き換える |
 
 「数値を更新」は既存ファイルを上書きします。実行前に対象件数を表示して確認を求めますが、書き換えを取り消す機能はありません。本文や他の frontmatter の項目には手を加えません。
 

@@ -406,3 +406,56 @@ test("件数として不正な値は書き込まない", () => {
   });
   assert.match(zero, /^page_view_count: 0$/m);
 });
+
+/* ------------------------- 公開日時（published） ------------------------- */
+
+test("API の応答からスキ数と公開日時をまとめて取る", async () => {
+  const calls = [];
+  const lib = loadLikeCount();
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    return {
+      ok: true,
+      json: async () => ({ data: { like_count: 46, publish_at: "2026-06-04T19:19:18.000+09:00" } }),
+    };
+  };
+  const summary = await lib.fetchNoteSummary("n111", fetchImpl);
+  assert.deepEqual({ ...summary }, { likeCount: 46, publishedAt: "2026-06-04T19:19:18" });
+  assert.equal(calls.length, 1, "公開日時のために通信を増やしてはいけません");
+});
+
+test("公開日時が無い・壊れている応答でも落ちない", async () => {
+  const lib = loadLikeCount();
+  for (const publishAt of [undefined, "", "いつか"]) {
+    const summary = await lib.fetchNoteSummary("n111", async () => ({
+      ok: true,
+      json: async () => ({ data: { like_count: 1, publish_at: publishAt } }),
+    }));
+    assert.equal(summary.publishedAt, null, `${String(publishAt)} を日時として扱っています`);
+    assert.equal(summary.likeCount, 1);
+  }
+});
+
+test("日付だけの published を時刻入りへ揃える", () => {
+  const lib = loadLikeCount();
+  const source = FRONTMATTER_SAMPLE.replace(
+    "published: 2026-01-01T00:00:00+09:00",
+    "published: 2026-01-01"
+  );
+  const next = lib.applyStatsToContent(source, { likeCount: 12, publishedAt: "2026-01-01T09:30:00" });
+  assert.match(next, /^published: 2026-01-01T09:30:00$/m);
+  assert.equal(next.match(/^published:/gm).length, 1, "行が増えています");
+});
+
+test("published が無い frontmatter には追加する", () => {
+  const lib = loadLikeCount();
+  const source = ["---", "note_id: n111", "author: hanaviye", "---", "", "本文"].join("\n");
+  const next = lib.applyStatsToContent(source, { publishedAt: "2026-06-04T19:19:18" });
+  assert.match(next, /^author: hanaviye\npublished: 2026-06-04T19:19:18$/m);
+});
+
+test("公開日時が取れなければ published に触らない", () => {
+  const lib = loadLikeCount();
+  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, { likeCount: 12, publishedAt: null });
+  assert.match(next, /^published: 2026-01-01T00:00:00\+09:00$/m, "元の値を変えています");
+});

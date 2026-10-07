@@ -451,3 +451,26 @@ test("解釈できない日時でも frontmatter を壊さない", () => {
   assert.equal(line, "published: いつか");
   assert.match(markdown, /^note_id: /m, "後続の項目が壊れています");
 });
+
+test("変換時と更新時で published の形式が一致する", async () => {
+  // 変換（lib/noteToMarkdown.js）と更新（lib/likeCount.js）は別々に日時を整形するため、
+  // 同じ日時から同じ文字列になることを確かめる。ずれると更新のたびに書き換えが走る。
+  const vm = await import("node:vm");
+  const { readSource } = await import("./helpers/env.mjs");
+  const context = { fetch: undefined, Intl, Date };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(readSource("lib", "likeCount.js"), context);
+
+  for (const datetime of [
+    "2026-06-04T19:19:18.000+09:00",
+    "2026-06-05T00:30:00.000+09:00",
+    "2026-06-04T22:00:00.000Z",
+    "2026-12-31T23:59:59.000+09:00",
+  ]) {
+    const { markdown } = convertArticle(wrapArticle("<p>本文</p>", { datetime }));
+    const fromConversion = markdown.split("\n").find((line) => line.startsWith("published: "))?.slice(11);
+    const fromUpdate = context.NtmLikeCount.formatJapanDateTime(new Date(datetime));
+    assert.equal(fromConversion, fromUpdate, `${datetime} で形式がずれています`);
+  }
+});

@@ -1156,10 +1156,11 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
     );
 
     try {
-      let likeCount = likeCountCache.get(target.noteId);
-      if (likeCount === undefined) {
-        likeCount = await NtmLikeCount.fetchLikeCount(target.noteId);
-        likeCountCache.set(target.noteId, likeCount);
+      let summary = likeCountCache.get(target.noteId);
+      if (summary === undefined) {
+        // 公開日時は同じ応答に入っているため、取得のための通信は増えない。
+        summary = await NtmLikeCount.fetchNoteSummary(target.noteId);
+        likeCountCache.set(target.noteId, summary);
         // note の API を連続で叩かないよう間隔を空ける。
         await sleep(NtmLikeCount.DEFAULT_DELAY_MS);
       }
@@ -1173,7 +1174,8 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
         withStats += 1;
       }
       const result = NtmLikeCount.buildUpdatedContentWithStats(freshContent, target.name, target.noteId, {
-        likeCount,
+        likeCount: summary.likeCount,
+        publishedAt: summary.publishedAt,
         pageViewCount: row?.pageViewCount ?? null,
         impressionCount: row?.impressionCount ?? null,
         statsUpdatedAt: dashboard?.statsUpdatedAt ?? null,
