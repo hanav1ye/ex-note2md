@@ -333,7 +333,7 @@ const buildFrontmatterShot = () => `<!doctype html>
     <div class="rows">
       ${SAMPLE_FRONTMATTER.map(([key, value, type]) => {
         // 「数値を更新」で書き換わる4つを1つのまとまりとして示す。
-        const isUpdatable = ["like_count", "page_view_count", "impression_count", "stats_updated_at"].includes(key);
+        const isUpdatable = ["published", "like_count", "page_view_count", "impression_count", "stats_updated_at"].includes(key);
         const showsBadge = ["like_count", "page_view_count", "impression_count"].includes(key);
         const valueHtml =
           type === "tags"
