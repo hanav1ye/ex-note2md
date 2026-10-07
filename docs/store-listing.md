@@ -278,6 +278,16 @@ UI を変更したら再生成すること（事前に `npm run build:dist` が�
 | `03-options-image.png` | 画像取込方式 | 画像は URL 参照・ローカル保存・Base64 から選択 |
 | `04-options-tagsets.png` | タグセットプリセット | よく使うタグの組み合わせを登録して一括適用 |
 | `05-options-obsidian.png` | Obsidian 連携 | 指定ワードを [[単語]] に変換して Obsidian へ |
+| `06-frontmatter.png` | 出力される frontmatter（サンプル値） | スキ数・ページビュー数・インプレッション数を最新値へ更新 |
+
+**掲載できるスクリーンショットは最大5枚のため、6枚から5枚を選ぶこと。** `06-frontmatter.png` を入れる場合、
+内容が設定項目にとどまる `03-options-image.png` を外すのが候補（画像取込方式は説明文で補える）。
+
+`06-frontmatter.png` は拡張機能のUIではなく、変換結果の frontmatter を示す図。
+**実データではなくサンプル値**（`sample_user` / `n0123456789ab` など）に差し替えてある。
+Obsidian など特定のアプリの画面を模した意匠にはしていない（他社アプリの実際の画面と
+誤認されないようにするため）。値や項目を変えるときは `scripts/make-screenshots.mjs` の
+`SAMPLE_FRONTMATTER` を編集して再生成する。
 
 ページ内の複数選択パネル（note.com 上に表示されるUI）は実際に拡張機能を読み込んだ状態でしか
 撮影できないため、必要であれば手動QAの際に取得する。

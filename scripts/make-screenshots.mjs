@@ -157,7 +157,14 @@ cpSync(SOURCE_DIR, workDir, { recursive: true });
  * @param {{name: string, page: "popup"|"options", extraStyle?: string, script?: string, storage?: object}} params - 生成条件。
  * @returns {string} 生成したHTMLのパス。
  */
-const buildShotPage = ({ name, page, extraStyle = "", script = "", storage = {} }) => {
+const buildShotPage = ({ name, page, extraStyle = "", script = "", storage = {}, standaloneHtml }) => {
+  // 変換結果そのものを見せる図など、拡張機能のUIではないものは独立HTMLとして撮る。
+  if (standaloneHtml) {
+    const standalonePath = join(workDir, `_shot-${name}.html`);
+    writeFileSync(standalonePath, standaloneHtml, "utf8");
+    return standalonePath;
+  }
+
   const stubName = `_stub-${name}.js`;
   writeFileSync(join(workDir, stubName), buildStub(storage), "utf8");
   const source = readFileSync(join(workDir, page, `${page}.html`), "utf8");
@@ -256,6 +263,93 @@ const onlySections = (keepTitleIds) => {
   `;
 };
 
+
+/**
+ * 出力される frontmatter の見本。
+ * 実データではなくサンプルに差し替えてある（掲載用のため）。
+ */
+const SAMPLE_FRONTMATTER = [
+  ["title", "サンプル記事：note を Markdown で保存する", "text"],
+  ["source", "https://note.com/sample_user/n/n0123456789ab", "link"],
+  ["note_id", "n0123456789ab", "text"],
+  ["author", "sample_user", "text"],
+  ["published", "2026-06-04T09:00:00+09:00", "date"],
+  ["like_count", "46", "number"],
+  ["page_view_count", "120", "number"],
+  ["impression_count", "2949", "number"],
+  ["stats_updated_at", "2026-10-05T07:00:00.000Z", "date"],
+  ["tags", "エンジニア / 学習メモ / 技術検証", "tags"],
+  ["converted_at", "2026-09-17T13:31:39.096+09:00", "date"],
+];
+
+/** 種別ごとの記号。特定のアプリの意匠を真似ず、種別が分かる程度にとどめる。 */
+const TYPE_MARKS = { text: "T", link: "/", date: "D", number: "#", tags: "#" };
+
+/** frontmatter の見本図（独立HTML）。 */
+const buildFrontmatterShot = () => `<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>frontmatter</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(140deg, #eef6fb 0%, #ffffff 50%, #fdf1f5 100%);
+    font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    color: #1e2340;
+  }
+  .card {
+    width: 560px; background: #fff; border: 1px solid #dce9f0; border-radius: 14px;
+    box-shadow: 0 14px 40px rgba(90, 143, 168, 0.22); overflow: hidden;
+  }
+  .card-head {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 12px 18px; border-bottom: 1px solid #eef3f6; background: #fafcfd;
+  }
+  .file { font-size: 15px; font-weight: 700; }
+  .caption { font-size: 11px; color: #6b7a90; }
+  .rows { padding: 8px 18px 14px; }
+  .row { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; font-size: 12.5px; line-height: 1.5; }
+  .mark {
+    flex: none; width: 16px; text-align: center; color: #9bb0c2;
+    font-size: 11px; font-weight: 700;
+  }
+  .key { flex: none; width: 150px; color: #5a6b80; }
+  .val { color: #1e2340; word-break: break-all; }
+  .val.num { font-weight: 700; }
+  .val.link { color: #2f7fa8; }
+  .updatable { background: #fff6fa; border-radius: 6px; }
+  .badge {
+    margin-left: 8px; padding: 1px 6px; border-radius: 999px;
+    background: #f0bccb; color: #5a2237; font-size: 10px; font-weight: 700; vertical-align: 1px;
+  }
+  .tag { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: #eef2f7; font-size: 11.5px; }
+</style></head>
+<body>
+  <div class="card">
+    <div class="card-head">
+      <span class="file">n0123456789ab.md</span>
+      <span class="caption">変換時に書き出される frontmatter（サンプル）</span>
+    </div>
+    <div class="rows">
+      ${SAMPLE_FRONTMATTER.map(([key, value, type]) => {
+        // 「数値を更新」で書き換わる4つを1つのまとまりとして示す。
+        const isUpdatable = ["like_count", "page_view_count", "impression_count", "stats_updated_at"].includes(key);
+        const showsBadge = ["like_count", "page_view_count", "impression_count"].includes(key);
+        const valueHtml =
+          type === "tags"
+            ? value.split(" / ").map((tag) => `<span class="tag">${tag}</span>`).join("")
+            : value;
+        const valueClass = type === "number" ? "val num" : type === "link" ? "val link" : "val";
+        return `<div class="row${isUpdatable ? " updatable" : ""}">
+          <span class="mark">${TYPE_MARKS[type]}</span>
+          <span class="key">${key}</span>
+          <span class="${valueClass}">${valueHtml}${showsBadge ? '<span class="badge">最新値へ更新</span>' : ""}</span>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>
+</body></html>`;
+
 const SHOTS = [
   {
     name: "01-popup",
@@ -302,6 +396,11 @@ const SHOTS = [
     // 内容が短いため上下の余白を均す
     extraStyle: `${onlySections(["obsidianSectionTitle"])}
       .container { padding-top: 70px; }`,
+  },
+  {
+    // 変換結果そのものを見せる1枚。拡張機能のUIではないため独立HTMLで撮る。
+    name: "06-frontmatter",
+    standaloneHtml: buildFrontmatterShot(),
   },
 ];
 
