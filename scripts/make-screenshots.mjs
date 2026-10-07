@@ -273,7 +273,7 @@ const SAMPLE_FRONTMATTER = [
   ["source", "https://note.com/sample_user/n/n0123456789ab", "link"],
   ["note_id", "n0123456789ab", "text"],
   ["author", "sample_user", "text"],
-  ["published", "2026-06-04T09:00:00+09:00", "date"],
+  ["published", "2026-06-04T19:19:18", "date"],
   ["like_count", "128", "number"],
   ["page_view_count", "1024", "number"],
   ["impression_count", "4096", "number"],

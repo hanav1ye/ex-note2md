@@ -411,3 +411,43 @@ test("中身の無い末尾ブロックは従来どおり落とす", () => {
   const { markdown } = convertArticle(wrapArticle("<p>本文</p><p></p><p>  </p><br>"));
   assert.match(markdown, /本文$/);
 });
+
+/* -------------------------------- 公開日時 -------------------------------- */
+
+test("公開日時を日本時間の秒まで出力する（オフセットは付けない）", () => {
+  const { markdown } = convertArticle(
+    wrapArticle("<p>本文</p>", { datetime: "2026-06-04T19:19:18.000+09:00" })
+  );
+  assert.match(markdown, /^published: 2026-06-04T19:19:18$/m);
+});
+
+test("朝9時より前に公開した記事でも日付がずれない", () => {
+  // UTC へ変換してから日付を取ると前日になってしまうケース
+  for (const [datetime, expected] of [
+    ["2026-06-05T00:30:00.000+09:00", "2026-06-05T00:30:00"],
+    ["2026-06-05T07:00:00.000+09:00", "2026-06-05T07:00:00"],
+    ["2026-01-01T00:00:00.000+09:00", "2026-01-01T00:00:00"],
+  ]) {
+    const { markdown } = convertArticle(wrapArticle("<p>本文</p>", { datetime }));
+    assert.match(markdown, new RegExp(`^published: ${expected}$`, "m"), `${datetime} の変換結果が違います`);
+  }
+});
+
+test("別のタイムゾーンで書かれていても日本時間に揃える", () => {
+  // 2026-06-04T22:00:00Z = 日本時間 2026-06-05 07:00
+  const { markdown } = convertArticle(wrapArticle("<p>本文</p>", { datetime: "2026-06-04T22:00:00.000Z" }));
+  assert.match(markdown, /^published: 2026-06-05T07:00:00$/m);
+});
+
+test("日時が無ければ published を出力しない", () => {
+  const html = wrapArticle("<p>本文</p>").replace(/<time[^>]*>.*?<\/time>/, "");
+  const { markdown } = convertArticle(html);
+  assert.doesNotMatch(markdown, /^published:/m);
+});
+
+test("解釈できない日時でも frontmatter を壊さない", () => {
+  const { markdown } = convertArticle(wrapArticle("<p>本文</p>", { datetime: "いつか" }));
+  const line = markdown.split("\n").find((l) => l.startsWith("published:"));
+  assert.equal(line, "published: いつか");
+  assert.match(markdown, /^note_id: /m, "後続の項目が壊れています");
+});
