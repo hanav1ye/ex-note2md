@@ -219,3 +219,40 @@ test("note_id は applyEnabled でも無効にできない", () => {
   const config = keys.applyEnabled(keys.normalizeConfig(undefined), "note_id", false);
   assert.equal(config.note_id.enabled, true);
 });
+
+/* -------------------- 設定にない項目の削除（任意） -------------------- */
+
+test("既定では「設定にない項目を削除する」は入っていない", () => {
+  const keys = loadKeys();
+  assert.equal(keys.normalizeConfig(undefined).removeUnknown, false);
+  assert.deepEqual(plain(keys.listPendingChanges(keys.normalizeConfig(undefined))), []);
+});
+
+test("入れると反映待ちになり、反映が終われば消える", () => {
+  const keys = loadKeys();
+  const on = keys.applyRemoveUnknown(keys.normalizeConfig(undefined), true);
+  assert.equal(on.removeUnknown, true);
+  assert.deepEqual(plain(keys.listPendingChanges(on)), [
+    { id: "removeUnknown", type: "removeUnknown", from: null, to: null },
+  ]);
+
+  const cleared = keys.clearPending(on);
+  assert.equal(cleared.removeUnknown, true, "設定そのものは残る必要があります");
+  assert.deepEqual(plain(keys.listPendingChanges(cleared)), []);
+});
+
+test("外した場合は反映待ちにしない（消した項目は戻せないため）", () => {
+  const keys = loadKeys();
+  const on = keys.clearPending(keys.applyRemoveUnknown(keys.normalizeConfig(undefined), true));
+  const off = keys.applyRemoveUnknown(on, false);
+  assert.equal(off.removeUnknown, false);
+  assert.deepEqual(plain(keys.listPendingChanges(off)), []);
+});
+
+test("入れたまま保存し直しても、反映待ちが復活しない", () => {
+  const keys = loadKeys();
+  const saved = keys.clearPending(keys.applyRemoveUnknown(keys.normalizeConfig(undefined), true));
+  const reloaded = keys.normalizeConfig(saved);
+  assert.equal(reloaded.removeUnknown, true);
+  assert.deepEqual(plain(keys.listPendingChanges(reloaded)), []);
+});
