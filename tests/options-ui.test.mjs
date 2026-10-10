@@ -1347,3 +1347,100 @@ test("中止した場合は保留を残す", async () => {
     "中止したのに保留を捨てています"
   );
 });
+
+test("「いま揃える」で、通信せずにキー名だけを揃える", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: renamedStore, handles: { preset1: vault } });
+
+  const apiCalls = [];
+  win.fetch = async (url) => {
+    apiCalls.push(String(url));
+    return { ok: true, json: async () => ({ data: { like_count: 99 } }) };
+  };
+
+  const button = doc.querySelector("#frontmatterAlignList button");
+  assert.ok(button, "フォルダごとのボタンが出ていません");
+  click(win, button);
+  await flush(400);
+
+  assert.match(file.state.contents, /^published_at: 2026-04-29$/m, "キー名が揃っていません");
+  assert.doesNotMatch(file.state.contents, /^published:/m);
+  assert.match(file.state.contents, /^like_count: 10$/m, "値を書き換えてはいけません");
+  assert.deepEqual(apiCalls, [], "note へ問い合わせてはいけません");
+  assert.match(doc.getElementById("frontmatterStatus").textContent, /揃えた 1件/);
+});
+
+test("反映待ちが無いときは「いま揃える」を出さない", async () => {
+  const { doc } = await loadOptions({ store: LIKE_COUNT_STORE });
+  assert.equal(doc.querySelectorAll("#frontmatterAlignList button").length, 0);
+});
+
+test("改名先を利用者がすでに使っていたら、そのファイルは触らない", async () => {
+  // マージも上書きもせず、衝突として飛ばす
+  const collided = articleMarkdown("nabc123", 10).replace(
+    "published: 2026-04-29",
+    "published: 2026-04-29\npublished_at: 手で書いた値"
+  );
+  const file = createMarkdownFile("nabc123.md", collided);
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: renamedStore, handles: { preset1: vault } });
+
+  click(win, doc.querySelector("#frontmatterAlignList button"));
+  await flush(400);
+
+  assert.equal(file.state.writes, 0, "衝突しているのに書き換えています");
+  assert.match(file.state.contents, /^published_at: 手で書いた値$/m);
+  assert.match(doc.getElementById("frontmatterStatus").textContent, /対象外 1件/);
+});
+
+/* ------------- frontmatter 設定のインポート / エクスポート ------------- */
+
+test("書き出しに frontmatter のキー設定を含める（保留中の旧名は含めない）", async () => {
+  const { win, doc, downloads } = await loadOptions({
+    store: { frontmatterKeys: { published: { enabled: true, name: "published_at", pendingOldName: "published" } } },
+  });
+  click(win, doc.getElementById("exportSettingsBtn"));
+  await flush();
+
+  const payload = JSON.parse(await downloads[0].blob.text());
+  assert.equal(payload.frontmatterKeys.published.name, "published_at");
+  assert.equal(payload.frontmatterKeys.published.enabled, true);
+  assert.equal("pendingOldName" in payload.frontmatterKeys.published, false, "端末ごとの状態は持ち出しません");
+});
+
+test("取り込むと差分を表示し、反映待ちになる（ファイルは書き換えない）", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc, store } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+
+  await selectImportFile(
+    win,
+    doc,
+    JSON.stringify({
+      type: "ex-note2md-settings",
+      version: 1,
+      frontmatterKeys: { published: { enabled: true, name: "published_at" }, author: { enabled: false, name: "author" } },
+    })
+  );
+  await flush();
+
+  assert.match(doc.getElementById("transferStatus").textContent, /published → published_at/);
+  assert.equal(store.frontmatterKeys.published.name, "published_at");
+  assert.equal(store.frontmatterKeys.published.pendingOldName, "published", "反映待ちになっていません");
+  assert.equal(file.state.writes, 0, "取り込みでファイルを書き換えてはいけません");
+  assert.equal(doc.getElementById("frontmatterPending").classList.contains("hidden"), false);
+});
+
+test("古い版のファイル（キー設定なし）を取り込んでも設定を変えない", async () => {
+  const { win, doc, store } = await loadOptions();
+  await selectImportFile(
+    win,
+    doc,
+    JSON.stringify({ type: "ex-note2md-settings", version: 1, tagCandidates: ["日記"] })
+  );
+  await flush();
+
+  assert.equal(store.frontmatterKeys, undefined, "触っていない設定を書き込んでいます");
+  assert.equal(doc.getElementById("frontmatterPending").classList.contains("hidden"), true);
+});

@@ -83,6 +83,7 @@ const likeCountConfirmCancelBtn = $("likeCountConfirmCancelBtn");
 const frontmatterKeyListEl = $("frontmatterKeyList");
 const frontmatterPendingEl = $("frontmatterPending");
 const frontmatterPendingListEl = $("frontmatterPendingList");
+const frontmatterAlignListEl = $("frontmatterAlignList");
 const exportSettingsBtn = $("exportSettingsBtn");
 const importSettingsBtn = $("importSettingsBtn");
 const importSettingsInputEl = $("importSettingsInput");
@@ -677,6 +678,13 @@ const buildTransferPayload = () => ({
   tagSets: presetTagSets.map((set) => ({ name: set.name, tags: [...set.tags] })),
   obsidianLinkWords: [...presetObsidianLinkWords],
   obsidianLinkify: obsidianLinkifyEnabled,
+  // 保留中の旧名は端末ごとの状態なので持ち出さない。
+  frontmatterKeys: Object.fromEntries(
+    NtmFrontmatterKeys.KEY_IDS.map((id) => [
+      id,
+      { enabled: frontmatterKeyConfig[id].enabled, name: frontmatterKeyConfig[id].name },
+    ])
+  ),
 });
 
 /**
@@ -718,6 +726,8 @@ const parseTransferPayload = (text) => {
     tagSets: sanitizeTagSets(data.tagSets, Infinity),
     obsidianLinkWords: sanitizeObsidianLinkWords(data.obsidianLinkWords),
     obsidianLinkify: Boolean(data.obsidianLinkify),
+    // 古い版のファイルには無い。無ければ現在の設定のままにする。
+    frontmatterKeys: data.frontmatterKeys ?? null,
   };
 };
 
@@ -825,10 +835,45 @@ const importSettings = async (file) => {
     payload.tagCandidates.length === 0 &&
     payload.tagSets.length === 0 &&
     payload.obsidianLinkWords.length === 0 &&
-    !payload.obsidianLinkify;
+    !payload.obsidianLinkify &&
+    !payload.frontmatterKeys;
   if (isEmpty) {
     setStatus(STATUS_TARGETS.transfer, t("options.transfer.nothingToImport"));
     return;
+  }
+
+  /*
+   * frontmatter のキー設定は項目ごとに単一の値なので、マージできない（上書きになる）。
+   * 既存の「マージのみ」とは性質が違うため、何がどう変わるかを出してから適用する。
+   * 適用してもファイルは書き換わらず、「反映待ち」として次の更新で反映される。
+   */
+  const keyChanges = [];
+  if (payload.frontmatterKeys) {
+    const incoming = NtmFrontmatterKeys.normalizeConfig(payload.frontmatterKeys);
+    let nextConfig = frontmatterKeyConfig;
+    NtmFrontmatterKeys.KEY_DEFS.forEach((def) => {
+      const current = nextConfig[def.id];
+      const next = incoming[def.id];
+      if (!def.fixed && current.name !== next.name) {
+        keyChanges.push(`${current.name} → ${next.name}`);
+        nextConfig = NtmFrontmatterKeys.applyRename(nextConfig, def.id, next.name);
+      }
+      if (!def.fixed && current.enabled !== next.enabled) {
+        keyChanges.push(
+          next.enabled
+            ? `${next.name} → ${t("options.frontmatter.output")}`
+            : t("options.frontmatter.pendingDisable", { from: next.name })
+        );
+        nextConfig = {
+          ...nextConfig,
+          [def.id]: { ...nextConfig[def.id], enabled: next.enabled },
+        };
+      }
+    });
+    if (keyChanges.length > 0) {
+      frontmatterKeyConfig = nextConfig;
+      await saveFrontmatterKeys();
+    }
   }
 
   const merged = mergeTransferPayload(payload);
@@ -856,7 +901,10 @@ const importSettings = async (file) => {
           max: MAX_TAG_SETS,
         })
       : "") +
-    (merged.linkifyTurnedOn ? t("options.transfer.linkifyEnabled") : "");
+    (merged.linkifyTurnedOn ? t("options.transfer.linkifyEnabled") : "") +
+    (keyChanges.length > 0
+      ? t("options.transfer.frontmatterChanged", { changes: keyChanges.join(" / ") })
+      : "");
   setStatus(STATUS_TARGETS.transfer, message);
 };
 
@@ -1163,6 +1211,7 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
   const likeCountCache = new Map();
   let withStats = 0;
   let withKeyChanges = 0;
+  let collided = 0;
   let updated = 0;
   let unchanged = 0;
   let mismatched = 0;
@@ -1228,6 +1277,11 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
         mismatched += 1;
         continue;
       }
+      // 改名先の名前を利用者がすでに使っていた。マージも上書きもせず飛ばす。
+      if (result.status === "collision") {
+        collided += 1;
+        continue;
+      }
       // 値が同じなら書き込まない。Obsidian の同期が無駄に走るのを避ける。
       if (result.status === "unchanged") {
         unchanged += 1;
@@ -1270,11 +1324,12 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
     t("options.likeCount.done", {
       updated,
       unchanged,
-      skipped: skippedCount + mismatched,
+      skipped: skippedCount + mismatched + collided,
       failed,
     }) +
       (withStats > 0 ? t("options.likeCount.doneStatsNote", { count: withStats }) : "") +
       (withKeyChanges > 0 ? t("options.likeCount.doneKeyChanges", { count: withKeyChanges }) : "") +
+      (collided > 0 ? t("options.likeCount.doneCollision", { count: collided }) : "") +
       (dashboard?.truncated ? t("options.likeCount.statsTruncated") : "")
   );
 };
@@ -1505,6 +1560,7 @@ const renderFrontmatterPending = () => {
         : t("options.frontmatter.pendingRename", { from: change.from, to: change.to });
     frontmatterPendingListEl.appendChild(item);
   });
+  renderFrontmatterAlign();
 };
 
 /**
@@ -1546,6 +1602,128 @@ const applyFrontmatterName = (id, input, row) => {
     return;
   }
   setStatus(STATUS_TARGETS.frontmatter, t("options.frontmatter.saved"), "ok");
+};
+
+/**
+ * 1 つのフォルダ配下の .md を、現在の設定どおりのキー名へ揃える。
+ *
+ * note への問い合わせを伴わない。行の付け替えだけなので、ログインも不要で速い。
+ * 値は書き換えず、既存の行をそのまま引き継ぐ（キー名と出力の有無だけを反映する）。
+ * @param {string} presetId - 対象プリセット。
+ * @returns {Promise<{updated: number, unchanged: number, skipped: number}|null>} 結果。権限が無ければ null。
+ */
+const alignFrontmatterInFolder = async (presetId) => {
+  const handle = await getHandle(presetId);
+  if (!handle) {
+    return null;
+  }
+  // requestPermission はクリック直後でないと通らないため、ここで済ませる。
+  let permission = await handle.queryPermission({ mode: "readwrite" });
+  if (permission !== "granted") {
+    permission = await handle.requestPermission({ mode: "readwrite" });
+  }
+  if (permission !== "granted") {
+    permissionStates[presetId] = "prompt";
+    render();
+    return null;
+  }
+
+  const files = await NtmLikeCount.collectMarkdownFiles(handle);
+  const { targets, skipped } = await NtmLikeCount.planUpdates(files);
+  let updated = 0;
+  let unchanged = 0;
+  let skippedCount = skipped.length;
+
+  for (const target of targets) {
+    try {
+      // 走査時ではなく、書き込む直前に読み直した内容を土台にする。
+      const freshContent = await (await target.handle.getFile()).text();
+      // 値は渡さない。既存の行を引き継いだうえで、名前と出力の有無だけを反映する。
+      const result = NtmLikeCount.buildUpdatedContentWithStats(
+        freshContent,
+        target.name,
+        target.noteId,
+        {},
+        frontmatterKeyConfig
+      );
+      if (result.status !== "ok") {
+        if (result.status === "unchanged") {
+          unchanged += 1;
+        } else {
+          skippedCount += 1;
+        }
+        continue;
+      }
+      const writable = await target.handle.createWritable();
+      await writable.write(result.content);
+      await writable.close();
+      updated += 1;
+    } catch {
+      skippedCount += 1;
+    }
+  }
+
+  return { updated, unchanged, skipped: skippedCount };
+};
+
+/** 反映待ちのときだけ、フォルダごとの「いま揃える」を並べる。 */
+const renderFrontmatterAlign = () => {
+  if (!frontmatterAlignListEl) {
+    return;
+  }
+  frontmatterAlignListEl.innerHTML = "";
+  if (NtmFrontmatterKeys.listPendingChanges(frontmatterKeyConfig).length === 0) {
+    return;
+  }
+
+  /*
+   * 権限はフォルダごとなので、1 クリックで複数のダイアログは出せない。
+   * フォルダごとにボタンを置き、押した分だけ 1 回ずつ許可を求める。
+   */
+  PRESET_IDS.filter((id) => presetConfigs[id]?.hasFolder).forEach((id) => {
+    const row = document.createElement("li");
+    row.className = "frontmatter-align-row";
+
+    const label = document.createElement("span");
+    label.textContent = presetConfigs[id].folderLabel || presetDisplayName(id, presetConfigs[id]);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = t("options.frontmatter.alignNow");
+    button.addEventListener("click", () => {
+      void (async () => {
+        button.disabled = true;
+        setStatus(STATUS_TARGETS.frontmatter, t("options.frontmatter.aligning"));
+        try {
+          const result = await alignFrontmatterInFolder(id);
+          if (!result) {
+            setStatus(
+              STATUS_TARGETS.frontmatter,
+              t("options.frontmatter.alignPermission", { folder: label.textContent }),
+              "error"
+            );
+            return;
+          }
+          setStatus(
+            STATUS_TARGETS.frontmatter,
+            t("options.frontmatter.alignDone", { folder: label.textContent, ...result }),
+            "ok"
+          );
+        } catch {
+          setStatus(
+            STATUS_TARGETS.frontmatter,
+            t("options.frontmatter.alignFailed", { folder: label.textContent }),
+            "error"
+          );
+        } finally {
+          button.disabled = false;
+        }
+      })();
+    });
+
+    row.append(label, button);
+    frontmatterAlignListEl.appendChild(row);
+  });
 };
 
 /** frontmatter の項目一覧を描く。 */

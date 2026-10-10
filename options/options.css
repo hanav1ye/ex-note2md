@@ -429,3 +429,20 @@ button.ghost {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12.5px;
 }
+
+.frontmatter-align-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.frontmatter-align-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
