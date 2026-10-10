@@ -1753,20 +1753,30 @@ const renderFrontmatterKeys = () => {
       setStatus(STATUS_TARGETS.frontmatter, t("options.frontmatter.saved"), "ok");
     });
 
+    // キー名だけでは何の項目か分からないため、呼び名を添える。
+    const name = document.createElement("span");
+    name.className = "frontmatter-key-name";
+
+    const label = document.createElement("span");
+    label.className = "frontmatter-key-label";
+    label.textContent = t(`options.frontmatter.label.${def.id}`);
+
     const id = document.createElement("span");
     id.className = "frontmatter-key-id";
     id.textContent = def.defaultName;
+
+    name.append(label, id);
 
     const input = document.createElement("input");
     input.type = "text";
     input.value = entry.name;
     input.disabled = def.fixed;
     input.maxLength = NtmFrontmatterKeys.NAME_MAX_LENGTH;
-    input.setAttribute("aria-label", `${def.defaultName} ${t("options.frontmatter.nameLabel")}`);
+    input.setAttribute("aria-label", `${label.textContent} ${t("options.frontmatter.nameLabel")}`);
     input.dataset.keyId = def.id;
     input.addEventListener("change", () => applyFrontmatterName(def.id, input, row));
 
-    row.append(toggle, id, input);
+    row.append(toggle, name, input);
     frontmatterKeyListEl.appendChild(row);
   });
 
