@@ -90,6 +90,7 @@ const loadContentScript = ({ store = {}, html = PAGE_HTML, noteStats } = {}) => 
 
   win.eval(readSource("lib", "i18n.js"));
   win.eval(readSource("lib", "frontmatterKeys.js"));
+  win.eval(readSource("lib", "conversionOptions.js"));
   if (noteStats) {
     // 既定では実物を読み込まず、ダッシュボード取得だけを差し替える。
     win.NtmNoteStats = noteStats;

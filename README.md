@@ -280,6 +280,7 @@ File System Access API で選択した保存先フォルダのハンドルを保
 | `lib/likeCount.js` | frontmatter の like_count 更新と .md フォルダ走査 |
 | `lib/noteStats.js` | ダッシュボードから記事別のページビュー数・インプレッション数を取得する（content script で動く） |
 | `lib/frontmatterKeys.js` | frontmatter の項目定義と、出力 ON/OFF・キー名の設定。変換と更新で同じ行の作り方を共有する |
+| `lib/conversionOptions.js` | 変換へ渡すオプションを保存済みの設定から組み立てる。popup / 選択モード / 現在のタブ の3経路が共有する |
 | `lib/convertPanel.js` | 変換画面のロジック（popup とサイドパネルで共有） |
 | `content/content.js` | 記事ページでの変換 API、リンク選択・一括処理 |
 | `background.js` | 保存処理・ファイル存在チェック |

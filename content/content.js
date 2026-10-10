@@ -827,21 +827,12 @@ const copyMarkdown = async (text) => {
  * 変換時に使うオプションを構築する。
  * @returns {Promise<{tags: string[], obsidianLinkify: boolean, obsidianLinkWords: string[]}>} 変換オプション。
  */
-const getConversionOptions = async () => {
-  const stored = await chrome.storage.local.get([
-    "presetObsidianLinkWords",
-    NtmFrontmatterKeys.STORAGE_KEY,
-  ]);
-  return {
+const getConversionOptions = () =>
+  // 選択モードは開始時に受け取った指定を引き継ぐ。それ以外は共有の組み立てに任せる。
+  NtmConversionOptions.build({
     tags: normalizeUserTags(pickContext.tags),
     obsidianLinkify: Boolean(pickContext.obsidianLinkify),
-    obsidianLinkWords: Array.isArray(stored.presetObsidianLinkWords)
-      ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
-      : [],
-    // 変換時にも利用者のキー設定を反映する。渡し忘れると設定が更新時にしか効かない。
-    frontmatterKeys: stored[NtmFrontmatterKeys.STORAGE_KEY],
-  };
-};
+  });
 
 /**
  * 単一記事の取得・変換・出力（コピー/ダウンロード）を実行する。
@@ -1150,19 +1141,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   void (async () => {
     try {
-      const stored = await chrome.storage.local.get([
-        "presetObsidianLinkWords",
-        NtmFrontmatterKeys.STORAGE_KEY,
-      ]);
-      const result = NoteToMarkdown.convertNotePageToMarkdown(document, location.href, {
+      // popup の「現在のタブ」変換はここを通る。タグとリンク化の指定だけ popup から受け取る。
+      const options = await NtmConversionOptions.build({
         tags: message.tags,
         obsidianLinkify: Boolean(message.obsidianLinkify),
-        obsidianLinkWords: Array.isArray(stored.presetObsidianLinkWords)
-          ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
-          : [],
-        // popup の「現在のタブ」変換はここを通る。渡し忘れると設定が効かない。
-        frontmatterKeys: stored[NtmFrontmatterKeys.STORAGE_KEY],
       });
+      const result = NoteToMarkdown.convertNotePageToMarkdown(document, location.href, options);
       sendResponse({ ok: true, title: result.title, markdown: result.markdown, paywall: result.paywall ?? null });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : t("error.convertFailed");
