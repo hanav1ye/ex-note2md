@@ -95,6 +95,8 @@ const loadOptions = async ({ store: initialStore = {}, handles = {}, uiLanguage 
   win.eval(readSource("lib", "i18n.js"));
   win.eval(readSource("lib", "frontmatterKeys.js"));
   win.eval(readSource("lib", "likeCount.js"));
+  // note の API を連続で叩かないための間隔は、テストでは待つ意味が無い。
+  win.NtmLikeCount.DEFAULT_DELAY_MS = 0;
   win.eval(readSource("options", "options.js"));
   await flush(60);
   return { win, doc: win.document, store, downloads, apiCalls };
@@ -593,12 +595,22 @@ test("中身が空のファイルは取り込むものが無いと伝える", as
  * @returns {object} スタブハンドル。
  */
 const createMarkdownFile = (name, contents) => {
-  const state = { contents, writes: 0 };
+  // reads は「書き込む直前の読み直し」を試すために数える。
+  const state = { contents, writes: 0, reads: 0 };
   return {
     kind: "file",
     name,
     state,
-    getFile: async () => ({ text: async () => state.contents }),
+    getFile: async () => ({
+      text: async () => {
+        state.reads += 1;
+        // 走査のあと、書き込む直前の読み直しまでの間に起きた変化を再現する。
+        if (state.onRead) {
+          state.onRead(state);
+        }
+        return state.contents;
+      },
+    }),
     createWritable: async () => ({
       write: async (data) => {
         state.contents = data;
@@ -694,7 +706,7 @@ test("確認してから frontmatter の like_count を更新する", async () =
   assert.equal(file.state.writes, 0, "確認前に書き換えています");
 
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.deepEqual(apiCalls, ["https://note.com/api/v3/notes/nabc123"]);
   assert.match(file.state.contents, /^like_count: 55$/m);
@@ -732,7 +744,7 @@ test("値が同じファイルは書き込まない", async () => {
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.equal(file.state.writes, 0, "同じ値なのに書き込んでいます");
   assert.match(doc.getElementById("likeCountStatus").textContent, /変更なし 1件/);
@@ -753,7 +765,7 @@ test("note_id を解決できないファイルは対象外にする", async () 
   assert.match(doc.getElementById("likeCountConfirmSkipped").textContent, /1件/);
 
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.equal(plain.state.writes, 0, "対象外のファイルを書き換えています");
   assert.match(doc.getElementById("likeCountStatus").textContent, /対象外 1件/);
@@ -772,7 +784,7 @@ test("同じ記事が複数あっても API は1回だけ呼ぶ", async () => {
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(700);
+  await flush(150);
 
   assert.equal(apiCalls.length, 1);
   assert.match(first.state.contents, /like_count: 55/);
@@ -825,7 +837,7 @@ test("popup から渡された実行指示を受け取って確認まで進む",
   assert.match(doc.getElementById("likeCountConfirmBody").textContent, /1件/);
 
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
   assert.match(file.state.contents, /like_count: 55/);
 });
 
@@ -875,7 +887,7 @@ test("実行中にファイルが編集されてもその編集を消さない",
   await flush(30);
   file.state.contents = file.state.contents.replace("本文", "本文\n\n実行中に書き足した段落");
 
-  await flush(600);
+  await flush(120);
 
   assert.match(file.state.contents, /like_count: 55/, "スキ数が更新されていません");
   assert.match(file.state.contents, /実行中に書き足した段落/, "実行中の編集を消しています");
@@ -890,15 +902,18 @@ test("走査後に別の記事へ変わったファイルは書き換えない",
   });
   stubConfirmModal(doc);
 
+  // 走査では元の記事、書き込む直前の読み直しでは別の記事になっている状態を作る。
+  const swapped = articleMarkdown("nzzz999", 3);
+  file.state.onRead = (state) => {
+    if (state.reads > 1) {
+      state.contents = swapped;
+    }
+  };
+
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-
-  await flush(30);
-  const swapped = articleMarkdown("nzzz999", 3);
-  file.state.contents = swapped;
-
-  await flush(600);
+  await flush(120);
 
   assert.equal(file.state.contents, swapped, "別記事に変わったファイルを書き換えています");
   assert.match(doc.getElementById("likeCountStatus").textContent, /対象外 1件/);
@@ -1007,7 +1022,7 @@ test("ページビュー数・インプレッション数を frontmatter へ書�
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.match(file.state.contents, /^like_count: 55$/m, "スキ数は公開APIの現在値を使います");
   assert.match(file.state.contents, /^page_view_count: 340$/m);
@@ -1030,7 +1045,7 @@ test("ダッシュボードに無い記事はスキ数だけ更新する", async
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.match(file.state.contents, /^like_count: 55$/m);
   assert.doesNotMatch(file.state.contents, /page_view_count/);
@@ -1047,7 +1062,7 @@ test("note.com のタブが無ければ実行せず、ファイルも書き換�
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.equal(file.state.writes, 0, "数値が取れないときは1件も書き換えません");
   assert.match(doc.getElementById("likeCountStatus").textContent, /note\.com のタブが見つかりません/);
@@ -1065,7 +1080,7 @@ test("未ログインなら実行せず、ファイルも書き換えない", as
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.equal(file.state.writes, 0);
   assert.match(doc.getElementById("likeCountStatus").textContent, /ログインしていない/);
@@ -1084,7 +1099,7 @@ test("content script と通信できないタブなら案内して終わる", as
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.equal(file.state.writes, 0);
   assert.match(doc.getElementById("likeCountStatus").textContent, /再読み込み/);
@@ -1116,7 +1131,7 @@ test("content script と通信できないタブは飛ばして次のタブを�
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.deepEqual(tried, [1, 2], "1つ目で諦めています");
   assert.match(file.state.contents, /^page_view_count: 340$/m);
@@ -1139,7 +1154,7 @@ test("取得を途中で打ち切ったことを結果に出す", async () => {
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.match(doc.getElementById("likeCountStatus").textContent, /途中で打ち切り/);
 });
@@ -1160,7 +1175,7 @@ test("更新ボタンで published が時刻入りへ揃う", async () => {
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.match(file.state.contents, /^published: 2026-04-29T16:24:54$/m);
   assert.match(file.state.contents, /^like_count: 55$/m);
@@ -1177,7 +1192,7 @@ test("公開日時を返さない応答なら published を変えない", async 
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.match(file.state.contents, /^published: 2026-04-29$/m, "元の値を変えています");
 });
@@ -1316,7 +1331,7 @@ test("更新を実行するとキー名が揃い、反映待ちが消える", as
   );
 
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.match(file.state.contents, /^published_at: 2026-04-29T16:24:54$/m);
   assert.doesNotMatch(file.state.contents, /^published:/m, "旧名が残っています");
@@ -1337,7 +1352,7 @@ test("中止した場合は保留を残す", async () => {
   acceptConfirm(win, doc);
   // 1件目の処理が始まる前に中止する
   click(win, doc.getElementById("likeCountCancelBtn"));
-  await flush(600);
+  await flush(120);
 
   assert.equal(
     store.frontmatterKeys?.published?.pendingOldName ?? "published",
@@ -1441,7 +1456,7 @@ test("改名先の名前を利用者がすでに使っているファイルは�
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.equal(file.state.writes, 0, "衝突しているのに書き換えています");
   assert.match(file.state.contents, /^published_at: 手で書いた値$/m);
@@ -1468,7 +1483,7 @@ test("出力をやめた項目も、更新を実行すると反映待ちが消�
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.doesNotMatch(file.state.contents, /^author:/m, "出力をやめた項目が残っています");
   assert.deepEqual(pendingTexts(doc), [], "反映待ちが消えていません");
@@ -1505,7 +1520,7 @@ test("削除する設定で更新すると、自分で足した項目が消え�
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.doesNotMatch(file.state.contents, /^status:/m, "設定にない項目が残っています");
   assert.match(file.state.contents, /^like_count: 55$/m);
@@ -1527,7 +1542,7 @@ test("削除しない設定なら、更新しても自分で足した項目は�
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 
   assert.match(file.state.contents, /^status: reading$/m);
 });
@@ -1552,7 +1567,7 @@ const runUpdateFor = async (win, doc, presetId) => {
   click(win, doc.getElementById("likeCountRunBtn"));
   await flush(80);
   acceptConfirm(win, doc);
-  await flush(600);
+  await flush(120);
 };
 
 test("フォルダが2つあるとき、1つ実行しただけでは反映待ちを消さない", async () => {
