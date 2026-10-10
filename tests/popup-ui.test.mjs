@@ -23,6 +23,7 @@ const loadPopup = async (initialStore = {}, options = {}) => {
   win.chrome = chrome;
   win.eval(readSource("lib", "i18n.js"));
   win.eval(readSource("lib", "frontmatterKeys.js"));
+  win.eval(readSource("lib", "conversionOptions.js"));
   win.eval(readSource("lib", "noteToMarkdown.js"));
   win.eval(readSource("lib", "convertPanel.js"));
   await flush(40);
