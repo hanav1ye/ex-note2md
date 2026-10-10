@@ -1348,52 +1348,6 @@ test("中止した場合は保留を残す", async () => {
   );
 });
 
-test("「いま揃える」で、通信せずにキー名だけを揃える", async () => {
-  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
-  const vault = createVaultHandle({ "nabc123.md": file });
-  const { win, doc } = await loadOptions({ store: renamedStore, handles: { preset1: vault } });
-
-  const apiCalls = [];
-  win.fetch = async (url) => {
-    apiCalls.push(String(url));
-    return { ok: true, json: async () => ({ data: { like_count: 99 } }) };
-  };
-
-  const button = doc.querySelector("#frontmatterAlignList button");
-  assert.ok(button, "フォルダごとのボタンが出ていません");
-  click(win, button);
-  await flush(400);
-
-  assert.match(file.state.contents, /^published_at: 2026-04-29$/m, "キー名が揃っていません");
-  assert.doesNotMatch(file.state.contents, /^published:/m);
-  assert.match(file.state.contents, /^like_count: 10$/m, "値を書き換えてはいけません");
-  assert.deepEqual(apiCalls, [], "note へ問い合わせてはいけません");
-  assert.match(doc.getElementById("frontmatterStatus").textContent, /揃えた 1件/);
-});
-
-test("反映待ちが無いときは「いま揃える」を出さない", async () => {
-  const { doc } = await loadOptions({ store: LIKE_COUNT_STORE });
-  assert.equal(doc.querySelectorAll("#frontmatterAlignList button").length, 0);
-});
-
-test("改名先を利用者がすでに使っていたら、そのファイルは触らない", async () => {
-  // マージも上書きもせず、衝突として飛ばす
-  const collided = articleMarkdown("nabc123", 10).replace(
-    "published: 2026-04-29",
-    "published: 2026-04-29\npublished_at: 手で書いた値"
-  );
-  const file = createMarkdownFile("nabc123.md", collided);
-  const vault = createVaultHandle({ "nabc123.md": file });
-  const { win, doc } = await loadOptions({ store: renamedStore, handles: { preset1: vault } });
-
-  click(win, doc.querySelector("#frontmatterAlignList button"));
-  await flush(400);
-
-  assert.equal(file.state.writes, 0, "衝突しているのに書き換えています");
-  assert.match(file.state.contents, /^published_at: 手で書いた値$/m);
-  assert.match(doc.getElementById("frontmatterStatus").textContent, /対象外 1件/);
-});
-
 /* ------------- frontmatter 設定のインポート / エクスポート ------------- */
 
 test("書き出しに frontmatter のキー設定を含める（保留中の旧名は含めない）", async () => {
@@ -1472,4 +1426,26 @@ test("英語表示では呼び名も英語になる", async () => {
   const { doc } = await loadOptions({ uiLanguage: "en" });
   const first = doc.querySelector("#frontmatterKeyList li .frontmatter-key-label");
   assert.equal(first.textContent, "Title");
+});
+
+test("改名先の名前を利用者がすでに使っているファイルは触らない", async () => {
+  // マージも上書きもせず、衝突として対象外に数える
+  const collided = articleMarkdown("nabc123", 10).replace(
+    "published: 2026-04-29",
+    "published: 2026-04-29\npublished_at: 手で書いた値"
+  );
+  const file = createMarkdownFile("nabc123.md", collided);
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: renamedStore, handles: { preset1: vault } });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.equal(file.state.writes, 0, "衝突しているのに書き換えています");
+  assert.match(file.state.contents, /^published_at: 手で書いた値$/m);
+  assert.match(doc.getElementById("likeCountStatus").textContent, /衝突 1件/);
 });
