@@ -83,6 +83,7 @@ const likeCountConfirmCancelBtn = $("likeCountConfirmCancelBtn");
 const frontmatterKeyListEl = $("frontmatterKeyList");
 const frontmatterPendingEl = $("frontmatterPending");
 const frontmatterPendingListEl = $("frontmatterPendingList");
+const frontmatterPendingRemainingEl = $("frontmatterPendingRemaining");
 const frontmatterRemoveUnknownEl = $("frontmatterRemoveUnknown");
 const exportSettingsBtn = $("exportSettingsBtn");
 const importSettingsBtn = $("importSettingsBtn");
@@ -1201,7 +1202,7 @@ const fetchDashboardStats = async () => {
   };
 };
 
-const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
+const applyLikeCountUpdates = async (targets, skippedCount, dashboard, presetId) => {
   const hasPendingKeyChanges =
     NtmFrontmatterKeys.listPendingChanges(frontmatterKeyConfig).length > 0;
   // 同じ記事が複数ファイルにある場合に API を二度叩かないようにする。
@@ -1299,7 +1300,16 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
    * 中止した場合は残したままにして、次の実行で続きを揃えられるようにする。
    */
   if (!likeCountCancelRequested && hasPendingKeyChanges) {
-    frontmatterKeyConfig = NtmFrontmatterKeys.clearPending(frontmatterKeyConfig);
+    /*
+     * 反映は 1 回につき 1 フォルダ。ここで保留を捨てると、まだ旧名のままの
+     * フォルダが取り残される。フォルダを設定しているプリセット全部に
+     * 行き渡ってから捨てる。
+     */
+    frontmatterKeyConfig = NtmFrontmatterKeys.markPendingApplied(frontmatterKeyConfig, presetId);
+    const requiredPresets = PRESET_IDS.filter((id) => presetConfigs[id]?.hasFolder);
+    if (NtmFrontmatterKeys.isPendingComplete(frontmatterKeyConfig, requiredPresets)) {
+      frontmatterKeyConfig = NtmFrontmatterKeys.clearPending(frontmatterKeyConfig);
+    }
     await saveFrontmatterKeys();
     renderFrontmatterPending();
   }
@@ -1410,7 +1420,7 @@ const runLikeCountUpdate = async ({ canRequestPermission = true } = {}) => {
       console.warn(`[note→Markdown] ${t("options.likeCount.statsTruncated")}`);
     }
 
-    await applyLikeCountUpdates(targets, skipped.length, dashboard);
+    await applyLikeCountUpdates(targets, skipped.length, dashboard, presetId);
   } catch (error) {
     if (error?.name !== "AbortError") {
       setStatus(STATUS_TARGETS.likeCount, t("options.likeCount.failed"));
@@ -1559,6 +1569,20 @@ const renderFrontmatterPending = () => {
     item.textContent = messages[change.type]();
     frontmatterPendingListEl.appendChild(item);
   });
+  // 反映は保存先フォルダごとなので、どこが残っているかを出す。
+  if (frontmatterPendingRemainingEl) {
+    const applied = new Set(frontmatterKeyConfig.pendingAppliedPresets ?? []);
+    const remaining = PRESET_IDS.filter((id) => presetConfigs[id]?.hasFolder && !applied.has(id));
+    const showRemaining = changes.length > 0 && remaining.length > 0 && applied.size > 0;
+    frontmatterPendingRemainingEl.textContent = showRemaining
+      ? t("options.frontmatter.pendingRemaining", {
+          count: remaining.length,
+          folders: remaining
+            .map((id) => presetConfigs[id].folderLabel || presetDisplayName(id, presetConfigs[id]))
+            .join(" / "),
+        })
+      : "";
+  }
 };
 
 /**
