@@ -22,6 +22,7 @@ const loadPopup = async (initialStore = {}, options = {}) => {
   const { chrome, store } = createChromeStub(initialStore, options);
   win.chrome = chrome;
   win.eval(readSource("lib", "i18n.js"));
+  win.eval(readSource("lib", "frontmatterKeys.js"));
   win.eval(readSource("lib", "noteToMarkdown.js"));
   win.eval(readSource("lib", "convertPanel.js"));
   await flush(40);
@@ -510,4 +511,37 @@ test("保存できなかった画像は URL 参照に戻し、その件数を st
   assert.match(copied, /!\[\]\(nabc123\/img1\.webp\)/);
   assert.match(copied, /!\[\]\(https:\/\/assets\.st-note\.com\/img\/b\.png\)/);
   assert.match(doc.getElementById("status").textContent, /保存できなかった画像 1 件/);
+});
+
+test("変換時にも frontmatter のキー設定が効く", async () => {
+  // 設定が更新時にしか効かず、新しく変換したファイルに反映されない不具合があった
+  const { win, doc } = await loadPopup({
+    sourceMode: "url",
+    outputMode: "copy",
+    frontmatterKeys: { published: { enabled: true, name: "published_at" }, author: { enabled: false } },
+  });
+
+  let copied = "";
+  Object.defineProperty(win.navigator, "clipboard", {
+    value: { writeText: async (text) => { copied = text; } },
+    configurable: true,
+  });
+  win.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+  win.NoteToMarkdown.fetchWithTimeout = async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      `<html><head><meta property="og:title" content="記事"></head><body><article>
+        <div class="o-noteContentHeader__creatorInfo"><a href="/hanaviye">花冷</a></div>
+        <div class="o-noteContentHeader__date"><time datetime="2026-06-04T19:19:18.000+09:00">x</time></div>
+        <div data-name="body" class="note-common-styles__textnote-body"><p>本文</p></div>
+      </article></body></html>`,
+  });
+  doc.getElementById("articleUrl").value = "https://note.com/hanaviye/n/nabc123";
+  click(win, doc.getElementById("convertBtn"));
+  await flush(80);
+
+  assert.match(copied, /^published_at: 2026-06-04T19:19:18$/m, "改名が変換に反映されていません");
+  assert.doesNotMatch(copied, /^published:/m);
+  assert.doesNotMatch(copied, /^author:/m, "出力しない設定が変換に反映されていません");
 });

@@ -89,6 +89,7 @@ const loadContentScript = ({ store = {}, html = PAGE_HTML, noteStats } = {}) => 
   };
 
   win.eval(readSource("lib", "i18n.js"));
+  win.eval(readSource("lib", "frontmatterKeys.js"));
   if (noteStats) {
     // 既定では実物を読み込まず、ダッシュボード取得だけを差し替える。
     win.NtmNoteStats = noteStats;
@@ -611,4 +612,23 @@ test("他の拡張機能からの数値取得依頼は処理しない", async ()
   });
   const response = await send({ type: "fetchNoteStats" }, { id: "other-extension-id" });
   assert.equal(response, undefined);
+});
+
+test("ページ上の変換でも frontmatter のキー設定が効く", async () => {
+  // 設定が更新時にしか効かず、新しく変換したファイルに反映されない不具合があった
+  const env = loadContentScript({ store: { frontmatterKeys: { author: { enabled: false } } } });
+  let passedOptions = null;
+  env.win.NoteToMarkdown.convertNotePageToMarkdown = (_doc, _url, options) => {
+    passedOptions = options;
+    return { title: "記事", markdown: "# 記事", metadata: {} };
+  };
+
+  await env.send({ type: "convert", tags: [] });
+
+  assert.ok(passedOptions, "変換が呼ばれていません");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(passedOptions.frontmatterKeys ?? null)),
+    { author: { enabled: false } },
+    "保存済みのキー設定が変換へ渡っていません"
+  );
 });
