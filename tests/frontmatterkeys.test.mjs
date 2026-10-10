@@ -256,3 +256,57 @@ test("入れたまま保存し直しても、反映待ちが復活しない", ()
   assert.equal(reloaded.removeUnknown, true);
   assert.deepEqual(plain(keys.listPendingChanges(reloaded)), []);
 });
+
+/* ------------- 反映はフォルダごと（1つ終わっても完了ではない） ------------- */
+
+test("フォルダ全部に行き渡るまで反映完了にしない", () => {
+  const keys = loadKeys();
+  const required = ["preset1", "preset2"];
+  let config = keys.applyRename(keys.normalizeConfig(undefined), "published", "published_at");
+
+  assert.equal(keys.isPendingComplete(config, required), false, "何もしていないのに完了です");
+
+  config = keys.markPendingApplied(config, "preset1");
+  assert.equal(keys.isPendingComplete(config, required), false, "1つで完了にしてはいけません");
+
+  config = keys.markPendingApplied(config, "preset2");
+  assert.equal(keys.isPendingComplete(config, required), true);
+});
+
+test("同じフォルダを2回実行しても、他のフォルダの分は埋まらない", () => {
+  const keys = loadKeys();
+  let config = keys.applyRename(keys.normalizeConfig(undefined), "published", "published_at");
+  config = keys.markPendingApplied(config, "preset1");
+  config = keys.markPendingApplied(config, "preset1");
+  assert.equal(keys.isPendingComplete(config, ["preset1", "preset2"]), false);
+});
+
+test("設定を変え直したら、適用済みの記録をやり直す", () => {
+  const keys = loadKeys();
+  let config = keys.applyRename(keys.normalizeConfig(undefined), "published", "published_at");
+  config = keys.markPendingApplied(config, "preset1");
+
+  // もう一度変えたら、preset1 も未適用に戻る
+  const renamedAgain = keys.applyRename(config, "author", "writer");
+  assert.deepEqual(plain(renamedAgain.pendingAppliedPresets), []);
+
+  const disabled = keys.applyEnabled(config, "author", false);
+  assert.deepEqual(plain(disabled.pendingAppliedPresets), []);
+
+  const removeUnknown = keys.applyRemoveUnknown(config, true);
+  assert.deepEqual(plain(removeUnknown.pendingAppliedPresets), []);
+});
+
+test("フォルダが1つだけなら、1回の実行で完了する", () => {
+  const keys = loadKeys();
+  let config = keys.applyRename(keys.normalizeConfig(undefined), "published", "published_at");
+  config = keys.markPendingApplied(config, "preset1");
+  assert.equal(keys.isPendingComplete(config, ["preset1"]), true);
+});
+
+test("保留を捨てると、適用済みの記録も消える", () => {
+  const keys = loadKeys();
+  let config = keys.applyRename(keys.normalizeConfig(undefined), "published", "published_at");
+  config = keys.markPendingApplied(config, "preset1");
+  assert.deepEqual(plain(keys.clearPending(config).pendingAppliedPresets), []);
+});

@@ -1533,3 +1533,124 @@ test("削除しない設定なら、更新しても自分で足した項目は�
 
   assert.match(file.state.contents, /^status: reading$/m);
 });
+
+/* ---------- 反映待ちはフォルダ全部に行き渡ってから消す ---------- */
+
+const TWO_FOLDER_STORE = {
+  presetConfigs: {
+    preset1: { name: "Obsidian", folderLabel: "Notes", hasFolder: true },
+    preset2: { name: "仕事", folderLabel: "Work", hasFolder: true },
+    preset3: { name: "P3", folderLabel: "", hasFolder: false },
+  },
+  frontmatterKeys: { published: { enabled: true, name: "published_at", pendingOldName: "published" } },
+};
+
+/** 対象フォルダを選んで更新を実行する。 */
+const runUpdateFor = async (win, doc, presetId) => {
+  const select = doc.getElementById("likeCountPreset");
+  select.value = presetId;
+  change(win, select);
+  await flush();
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+};
+
+test("フォルダが2つあるとき、1つ実行しただけでは反映待ちを消さない", async () => {
+  const fileA = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const fileB = createMarkdownFile("ndef456.md", articleMarkdown("ndef456", 20));
+  const { win, doc, store } = await loadOptions({
+    store: TWO_FOLDER_STORE,
+    handles: {
+      preset1: createVaultHandle({ "nabc123.md": fileA }),
+      preset2: createVaultHandle({ "ndef456.md": fileB }),
+    },
+  });
+  win.fetch = async () => ({
+    ok: true,
+    json: async () => ({ data: { like_count: 55, publish_at: "2026-04-29T16:24:54.000+09:00" } }),
+  });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  await runUpdateFor(win, doc, "preset1");
+
+  assert.match(fileA.state.contents, /^published_at: /m, "1つ目が揃っていません");
+  assert.match(fileB.state.contents, /^published: /m, "2つ目はまだ旧名のはずです");
+  assert.deepEqual(pendingTexts(doc), ["published → published_at"], "反映待ちを早く消しています");
+  assert.equal(store.frontmatterKeys.published.pendingOldName, "published");
+  assert.deepEqual([...store.frontmatterKeys.pendingAppliedPresets], ["preset1"]);
+});
+
+test("残りのフォルダも実行すると反映待ちが消える", async () => {
+  const fileA = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const fileB = createMarkdownFile("ndef456.md", articleMarkdown("ndef456", 20));
+  const { win, doc, store } = await loadOptions({
+    store: TWO_FOLDER_STORE,
+    handles: {
+      preset1: createVaultHandle({ "nabc123.md": fileA }),
+      preset2: createVaultHandle({ "ndef456.md": fileB }),
+    },
+  });
+  win.fetch = async () => ({
+    ok: true,
+    json: async () => ({ data: { like_count: 55, publish_at: "2026-04-29T16:24:54.000+09:00" } }),
+  });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  await runUpdateFor(win, doc, "preset1");
+  await runUpdateFor(win, doc, "preset2");
+
+  assert.match(fileA.state.contents, /^published_at: /m);
+  assert.match(fileB.state.contents, /^published_at: /m);
+  assert.deepEqual(pendingTexts(doc), [], "反映待ちが消えていません");
+  assert.equal(store.frontmatterKeys.published.pendingOldName, null);
+});
+
+test("フォルダが1つだけなら、1回の実行で反映待ちが消える", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const { win, doc } = await loadOptions({
+    store: { ...LIKE_COUNT_STORE, frontmatterKeys: TWO_FOLDER_STORE.frontmatterKeys },
+    handles: { preset1: createVaultHandle({ "nabc123.md": file }) },
+  });
+  win.fetch = async () => ({
+    ok: true,
+    json: async () => ({ data: { like_count: 55, publish_at: "2026-04-29T16:24:54.000+09:00" } }),
+  });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  await runUpdateFor(win, doc, "preset1");
+  assert.deepEqual(pendingTexts(doc), []);
+});
+
+test("残っているフォルダを名前で知らせる", async () => {
+  const fileA = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const fileB = createMarkdownFile("ndef456.md", articleMarkdown("ndef456", 20));
+  const { win, doc } = await loadOptions({
+    store: TWO_FOLDER_STORE,
+    handles: {
+      preset1: createVaultHandle({ "nabc123.md": fileA }),
+      preset2: createVaultHandle({ "ndef456.md": fileB }),
+    },
+  });
+  win.fetch = async () => ({
+    ok: true,
+    json: async () => ({ data: { like_count: 55, publish_at: "2026-04-29T16:24:54.000+09:00" } }),
+  });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  // まだ一度も実行していないうちは、残りの案内を出さない
+  assert.equal(doc.getElementById("frontmatterPendingRemaining").textContent, "");
+
+  await runUpdateFor(win, doc, "preset1");
+  const remaining = doc.getElementById("frontmatterPendingRemaining").textContent;
+  assert.match(remaining, /残り 1件/);
+  assert.match(remaining, /Work/, "残っているフォルダ名が出ていません");
+
+  await runUpdateFor(win, doc, "preset2");
+  assert.equal(doc.getElementById("frontmatterPendingRemaining").textContent, "");
+});
