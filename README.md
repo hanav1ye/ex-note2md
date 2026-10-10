@@ -318,6 +318,21 @@ npm install
 | `npm run make:screenshots` | ストア掲載用スクリーンショット（1280x800）を `docs/screenshots/` へ生成 |
 | `npm run make:store-images` | ストア掲載用プロモーションタイル（440x280 / 1400x560）を `docs/screenshots/` へ生成 |
 
+テストは次の 3 層に分けています。同じ保証を複数の層で確かめている箇所がありますが、
+**ライブラリが正しくても呼び出し側が渡し忘れる**という事故が実際に起きたため、意図的に残しています。
+
+| 層 | 役割 | ファイル |
+|----|------|----------|
+| 純粋なロジック | 入出力だけを確かめる。速い | `frontmatterkeys` / `conversionoptions` / `notestats` / `likecount` / `conversion-unit` / `i18n` |
+| 実データの回帰 | 実記事での出力が変わらないことを固定する | `conversion-golden` / `conversion-parity` |
+| 画面と配線 | 実際の HTML に操作を流し、保存とファイル書き込みまで見る | `options-ui` / `popup-ui` / `content-ui` / `background` |
+
+書くときの指針:
+
+- **壊れたときに何が起きるか**をテスト名と失敗メッセージに書く（「反映待ちを早く消しています」など）
+- 既定の出力が変わらないことは必ず固定する。崩れると利用者の全ファイルが書き換わる
+- 時間に依存させない。待ち時間を使ったレースではなく、スタブの応答で状況を作る
+
 テストの構成:
 
 | ファイル | 内容 |
@@ -326,10 +341,13 @@ npm install
 | `tests/conversion-parity.test.mjs` | タブ変換とURL変換の出力一致 |
 | `tests/conversion-unit.test.mjs` | frontmatter・記法・Obsidianリンク化などの個別仕様 |
 | `tests/i18n.test.mjs` | 表示言語の解決・フォールバック・DOM への適用 |
-| `tests/likecount.test.mjs` | frontmatter の like_count 更新・.md 走査・API 取得 |
+| `tests/likecount.test.mjs` | frontmatter のブロック再生成・.md 走査・API 取得 |
+| `tests/frontmatterkeys.test.mjs` | frontmatter の項目定義・キー名の検証・反映待ちの管理 |
+| `tests/conversionoptions.test.mjs` | 変換へ渡す設定の組み立て（3経路で共有） |
+| `tests/notestats.test.mjs` | ダッシュボードからのページビュー数・インプレッション数の取得 |
 | `tests/background.test.mjs` | 保存処理、URL/ファイル名の検証、メッセージ検証 |
 | `tests/content-ui.test.mjs` | 選択モード、一括処理の中止、Shadow DOM 隔離 |
-| `tests/options-ui.test.mjs` | タグ候補・タグセット・フォルダ権限の再許可・設定の入出力・表示言語・スキ数更新 |
+| `tests/options-ui.test.mjs` | タグ候補・タグセット・フォルダ権限・設定の入出力・表示言語・数値更新・frontmatter の項目設定 |
 | `tests/popup-ui.test.mjs` | タグ選択・タグセット適用・保存先プリセット表示・表示言語 |
 
 実ブラウザでしか確認できない項目は [docs/manual-qa.md](docs/manual-qa.md) にまとめています。
