@@ -507,3 +507,28 @@ test("欠けているフィールドは null にする", async () => {
   assert.equal(summary.author, null);
   assert.equal(summary.likeCount, 1);
 });
+
+test("既定では、設定にない項目を残す", () => {
+  const lib = loadLikeCount();
+  const withOwn = SAMPLE.replace("author: hanaviye", "author: hanaviye\nstatus: reading");
+  const next = lib.applyStatsToContent(withOwn, VALUES);
+  assert.match(next, /^status: reading$/m);
+});
+
+test("「設定にない項目を削除する」を入れると落とす", () => {
+  const lib = loadLikeCount();
+  const withOwn = SAMPLE.replace("author: hanaviye", "author: hanaviye\nstatus: reading\nrating: 5");
+  const next = lib.applyStatsToContent(withOwn, VALUES, { removeUnknown: true });
+  assert.doesNotMatch(next, /^status:/m);
+  assert.doesNotMatch(next, /^rating:/m);
+  assert.match(next, /^title: /m, "管理している項目まで消しています");
+  assert.match(next, /^ {2}- エンジニア$/m, "tags の値まで消しています");
+  assert.match(next, /^# 記事$/m, "本文を壊しています");
+});
+
+test("削除する設定でも、出力しない設定の項目と区別して扱う", () => {
+  const lib = loadLikeCount();
+  const next = lib.applyStatsToContent(SAMPLE, VALUES, { removeUnknown: true, author: { enabled: false } });
+  assert.doesNotMatch(next, /^author:/m);
+  assert.match(next, /^note_id: n111$/m);
+});

@@ -83,6 +83,7 @@ const likeCountConfirmCancelBtn = $("likeCountConfirmCancelBtn");
 const frontmatterKeyListEl = $("frontmatterKeyList");
 const frontmatterPendingEl = $("frontmatterPending");
 const frontmatterPendingListEl = $("frontmatterPendingList");
+const frontmatterRemoveUnknownEl = $("frontmatterRemoveUnknown");
 const exportSettingsBtn = $("exportSettingsBtn");
 const importSettingsBtn = $("importSettingsBtn");
 const importSettingsInputEl = $("importSettingsInput");
@@ -1550,10 +1551,12 @@ const renderFrontmatterPending = () => {
   frontmatterPendingListEl.innerHTML = "";
   changes.forEach((change) => {
     const item = document.createElement("li");
-    item.textContent =
-      change.type === "disable"
-        ? t("options.frontmatter.pendingDisable", { from: change.from })
-        : t("options.frontmatter.pendingRename", { from: change.from, to: change.to });
+    const messages = {
+      removeUnknown: () => t("options.frontmatter.pendingRemoveUnknown"),
+      disable: () => t("options.frontmatter.pendingDisable", { from: change.from }),
+      rename: () => t("options.frontmatter.pendingRename", { from: change.from, to: change.to }),
+    };
+    item.textContent = messages[change.type]();
     frontmatterPendingListEl.appendChild(item);
   });
 };
@@ -1654,8 +1657,21 @@ const renderFrontmatterKeys = () => {
     frontmatterKeyListEl.appendChild(row);
   });
 
+  if (frontmatterRemoveUnknownEl) {
+    frontmatterRemoveUnknownEl.checked = frontmatterKeyConfig.removeUnknown === true;
+  }
   renderFrontmatterPending();
 };
+
+frontmatterRemoveUnknownEl?.addEventListener("change", () => {
+  frontmatterKeyConfig = NtmFrontmatterKeys.applyRemoveUnknown(
+    frontmatterKeyConfig,
+    frontmatterRemoveUnknownEl.checked
+  );
+  void saveFrontmatterKeys();
+  renderFrontmatterPending();
+  setStatus(STATUS_TARGETS.frontmatter, t("options.frontmatter.saved"), "ok");
+});
 
 const render = () => {
   renderFrontmatterKeys();

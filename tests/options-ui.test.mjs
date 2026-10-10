@@ -1476,3 +1476,60 @@ test("出力をやめた項目も、更新を実行すると反映待ちが消�
   assert.deepEqual(pendingTexts(doc), [], "反映待ちが消えていません");
   assert.equal(store.frontmatterKeys.author.pendingOldName, null);
 });
+
+test("「設定にない項目を削除する」は既定で外れていて、入れると反映待ちに出る", async () => {
+  const { win, doc, store } = await loadOptions();
+  const checkbox = doc.getElementById("frontmatterRemoveUnknown");
+  assert.equal(checkbox.checked, false, "既定で入っていてはいけません");
+
+  checkbox.checked = true;
+  change(win, checkbox);
+  await flush();
+
+  assert.equal(store.frontmatterKeys.removeUnknown, true);
+  assert.deepEqual(pendingTexts(doc), ["設定にない項目を削除する"]);
+});
+
+test("削除する設定で更新すると、自分で足した項目が消える", async () => {
+  const withOwn = articleMarkdown("nabc123", 10).replace(
+    "author: hanaviye",
+    "author: hanaviye\nstatus: reading"
+  );
+  const file = createMarkdownFile("nabc123.md", withOwn);
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc, store } = await loadOptions({
+    store: { ...LIKE_COUNT_STORE, frontmatterKeys: { removeUnknown: true, pendingRemoveUnknown: true } },
+    handles: { preset1: vault },
+  });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.doesNotMatch(file.state.contents, /^status:/m, "設定にない項目が残っています");
+  assert.match(file.state.contents, /^like_count: 55$/m);
+  assert.deepEqual(pendingTexts(doc), [], "反映待ちが消えていません");
+  assert.equal(store.frontmatterKeys.removeUnknown, true, "設定そのものは残る必要があります");
+});
+
+test("削除しない設定なら、更新しても自分で足した項目は残る", async () => {
+  const withOwn = articleMarkdown("nabc123", 10).replace(
+    "author: hanaviye",
+    "author: hanaviye\nstatus: reading"
+  );
+  const file = createMarkdownFile("nabc123.md", withOwn);
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.match(file.state.contents, /^status: reading$/m);
+});
