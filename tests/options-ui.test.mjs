@@ -1193,14 +1193,12 @@ const keyRow = (doc, id) => {
 const pendingTexts = (doc) =>
   [...doc.querySelectorAll("#frontmatterPendingList li")].map((item) => item.textContent);
 
-test("全ての項目が既定名で並び、note_id だけ編集できない", async () => {
+test("変更できる項目だけが既定名で並ぶ（note_id は出さない）", async () => {
   const { doc } = await loadOptions();
   const rows = [...doc.querySelectorAll("#frontmatterKeyList li")];
-  assert.equal(rows.length, 11);
-
-  const noteId = keyRow(doc, "note_id");
-  assert.equal(noteId.input.disabled, true, "note_id のキー名は変更できてはいけません");
-  assert.equal(noteId.toggle.disabled, true, "note_id は出力を止められてはいけません");
+  // 操作できない note_id を並べても選べると誤解させるだけなので出さない
+  assert.equal(rows.length, 10);
+  assert.equal(keyRow(doc, "note_id").input, null, "note_id が一覧に出ています");
 
   const published = keyRow(doc, "published");
   assert.equal(published.input.disabled, false);
@@ -1409,7 +1407,7 @@ test("項目にはキー名だけでなく呼び名を添える", async () => {
   assert.equal(ids[0], "title", "キー名も併記する必要があります");
   assert.equal(labels[ids.indexOf("stats_updated_at")], "数値の集計日時");
   assert.equal(labels[ids.indexOf("source")], "記事のURL");
-  assert.equal(labels.filter(Boolean).length, 11, "呼び名が無い項目があります");
+  assert.equal(labels.filter(Boolean).length, 10, "呼び名が無い項目があります");
 
   // 改名しても、どの項目かが分かるよう既定のキー名は出したまま
   const { doc: renamed } = await loadOptions({
@@ -1653,4 +1651,46 @@ test("残っているフォルダを名前で知らせる", async () => {
 
   await runUpdateFor(win, doc, "preset2");
   assert.equal(doc.getElementById("frontmatterPendingRemaining").textContent, "");
+});
+
+test("反映済みのフォルダを選び直したら、キー名の変更を案内しない", async () => {
+  const fileA = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const fileB = createMarkdownFile("ndef456.md", articleMarkdown("ndef456", 20));
+  const { win, doc } = await loadOptions({
+    store: TWO_FOLDER_STORE,
+    handles: {
+      preset1: createVaultHandle({ "nabc123.md": fileA }),
+      preset2: createVaultHandle({ "ndef456.md": fileB }),
+    },
+  });
+  win.fetch = async () => ({
+    ok: true,
+    json: async () => ({ data: { like_count: 55, publish_at: "2026-04-29T16:24:54.000+09:00" } }),
+  });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  await runUpdateFor(win, doc, "preset1");
+
+  // まだ未適用の preset2 では案内する
+  doc.getElementById("likeCountPreset").value = "preset2";
+  change(win, doc.getElementById("likeCountPreset"));
+  await flush();
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  assert.match(doc.getElementById("likeCountConfirmSkipped").textContent, /published → published_at/);
+  click(win, doc.getElementById("likeCountConfirmCancelBtn"));
+  await flush();
+
+  // 反映済みの preset1 では案内しない（今回の実行では何も変わらないため）
+  doc.getElementById("likeCountPreset").value = "preset1";
+  change(win, doc.getElementById("likeCountPreset"));
+  await flush();
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  assert.doesNotMatch(
+    doc.getElementById("likeCountConfirmSkipped").textContent,
+    /published_at/,
+    "反映済みのフォルダなのに案内しています"
+  );
 });

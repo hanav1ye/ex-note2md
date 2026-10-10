@@ -1382,8 +1382,14 @@ const runLikeCountUpdate = async ({ canRequestPermission = true } = {}) => {
       return;
     }
 
-    // 保留中のキー名の変更を、確認ダイアログで見せる文字列にする。
-    const pendingChanges = NtmFrontmatterKeys.listPendingChanges(frontmatterKeyConfig);
+    /*
+     * 保留中のキー名の変更を、確認ダイアログで見せる文字列にする。
+     * すでにこのフォルダへ反映済みなら、今回の実行では何も変わらないので出さない。
+     */
+    const appliedPresets = new Set(frontmatterKeyConfig.pendingAppliedPresets ?? []);
+    const pendingChanges = appliedPresets.has(presetId)
+      ? []
+      : NtmFrontmatterKeys.listPendingChanges(frontmatterKeyConfig);
     const keyChanges = pendingChanges
       .map((change) =>
         change.type === "disable"
@@ -1633,7 +1639,11 @@ const renderFrontmatterKeys = () => {
   }
   frontmatterKeyListEl.innerHTML = "";
 
-  NtmFrontmatterKeys.KEY_DEFS.forEach((def) => {
+  /*
+   * 変更できない項目（note_id）は一覧に出さない。操作できないものが並んでいても
+   * 選べると誤解させるだけで、常に出力されることは節の説明に書いてある。
+   */
+  NtmFrontmatterKeys.KEY_DEFS.filter((def) => !def.fixed).forEach((def) => {
     const entry = frontmatterKeyConfig[def.id];
     const row = document.createElement("li");
     row.className = `frontmatter-key-row${def.fixed ? " is-fixed" : ""}`;
