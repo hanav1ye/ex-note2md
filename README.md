@@ -168,8 +168,6 @@ Markdown の出力内容（frontmatter のキー名など）は表示言語の�
 
 note.com のタブが開いていない、またはログインしていない場合は、**1 件も書き換えずに案内して終わります**（スキ数だけ更新する、という中途半端な結果にはしません）。こちらから勝手にタブを開くことはしません。
 
-ログイン不要でスキ数だけ更新したい場合は、CLI の `npm run update-like-count` が従来どおり使えます。
-
 - `page_view_count` と `impression_count` は、**取れなかった記事にはキーを足しません**（他人の記事、インプレッションのデータが無い期間）。すでにある行を消すこともしません
 - `stats_updated_at` は「記事タブ全体の集計日時」なので、**全ファイルに同じ値が入ります**（note が記事ごとの集計日時を返さないため）
 - note の数値はリアルタイムではありません。当日分は約 2 時間ごと、前日までは毎朝確定します
@@ -187,8 +185,6 @@ popup のボタンは**入口だけ**で、実処理はオプション画面で�
 - 3 つの数値は常に最新値で上書きします。ただし**値が同じファイルは書き込みません**（Obsidian の同期が不要に走るのを避けるため）
 - 同じ記事が複数ファイルにある場合、API 呼び出しは 1 回だけです
 - note の API へは 300ms 間隔で問い合わせます。実行中は「中止」で止められます
-
-同じ処理は CLI（`npm run update-like-count`）でも実行できます。大量のファイルを一度に処理する場合は CLI のほうが速く、拡張機能側は Obsidian を開いたまま手元で走らせる用途を想定しています。
 
 ### 設定のインポート / エクスポート
 
@@ -267,7 +263,6 @@ File System Access API で選択した保存先フォルダのハンドルを保
 | `scripts/zip-dir.mjs` | 依存なしの ZIP 書き出し（Compress-Archive / GNU tar の罠を避けるため自前実装） |
 | `scripts/make-screenshots.mjs` | ストア掲載用スクリーンショットの生成 |
 | `scripts/make-store-images.mjs` | ストア掲載用プロモーションタイルの生成 |
-| `scripts/update-like-count.mjs` | スキ数更新の CLI 版（拡張機能と同じ判定ルール） |
 | `scripts/update-fixtures.mjs` | テスト用フィクスチャの取得（手動実行） |
 | `scripts/update-golden.mjs` | 期待Markdownの再生成（手動実行） |
 | `tests/` | 自動テスト |
@@ -287,7 +282,6 @@ npm install
 | `npm run test:dist` | 同じテストを **minify 済みの `dist/`** に対して実行 |
 | `npm run verify` | lint とテストをまとめて実行 |
 | `npm run build:dist` | 配布用 `dist/` を生成し、提出用の `ex-note2md-{version}.zip` まで作る（lint / test / バージョン整合を検証し、生成後は `dist` に対しても再テスト） |
-| `npm run update-like-count -- <フォルダ>` | 指定フォルダ配下の `.md` の `like_count` を CLI で更新（`--dry-run` / `--force` / `--delay N`） |
 | `npm run update:fixtures` | ゴールデンテスト用の記事フィクスチャを note.com から再取得 |
 | `npm run update:golden` | 期待Markdownを再生成（変換仕様を意図的に変えたときのみ） |
 | `npm run make:screenshots` | ストア掲載用スクリーンショット（1280x800）を `docs/screenshots/` へ生成 |
