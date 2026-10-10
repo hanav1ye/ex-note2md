@@ -372,3 +372,60 @@ button.ghost {
   color: #b45309;
   font-weight: 600;
 }
+
+/* frontmatter の項目設定 */
+.frontmatter-key-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.frontmatter-key-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.frontmatter-key-row .frontmatter-key-id {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+  color: #5a6b80;
+}
+
+.frontmatter-key-row input[type='text'] {
+  width: 100%;
+}
+
+.frontmatter-key-row.is-fixed .frontmatter-key-id::after {
+  content: ' 🔒';
+}
+
+.frontmatter-key-row.is-invalid input[type='text'] {
+  border-color: #c2466a;
+  background: #fff6fa;
+}
+
+.frontmatter-pending {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0bccb;
+  border-radius: 8px;
+  background: #fff6fa;
+}
+
+.frontmatter-pending-title {
+  margin: 0 0 6px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.frontmatter-pending-list {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12.5px;
+}

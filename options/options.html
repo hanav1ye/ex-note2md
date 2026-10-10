@@ -179,6 +179,21 @@
       </div>
     </section>
 
+    <section class="settings-section" aria-labelledby="frontmatterSectionTitle">
+      <h2 id="frontmatterSectionTitle" class="settings-section-title" data-i18n="options.frontmatter.title">frontmatter の項目</h2>
+      <p class="hint inline" data-i18n="options.frontmatter.hint">
+        Markdown の先頭に書き出す項目を選び、キー名を変えられます。note_id は記事の特定に使うため変更できません。
+      </p>
+      <div class="settings-card">
+        <div id="frontmatterPending" class="frontmatter-pending hidden" role="status" aria-live="polite">
+          <p class="frontmatter-pending-title" data-i18n="options.frontmatter.pendingTitle">既存ファイルへの反映待ち</p>
+          <ul id="frontmatterPendingList" class="frontmatter-pending-list"></ul>
+          <p class="hint inline" data-i18n="options.frontmatter.pendingHint">次回「数値を更新」を実行したときに反映されます。</p>
+        </div>
+        <ul id="frontmatterKeyList" class="frontmatter-key-list"></ul>
+        <div id="frontmatterStatus" class="status" role="status" aria-live="polite"></div>
+      </div>
+    </section>
     <section class="settings-section" aria-labelledby="transferSectionTitle">
       <h2 id="transferSectionTitle" class="settings-section-title" data-i18n="options.transfer.title">設定のインポート / エクスポート</h2>
       <p class="hint inline" data-i18n="options.transfer.hint">

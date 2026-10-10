@@ -1181,3 +1181,169 @@ test("公開日時を返さない応答なら published を変えない", async 
 
   assert.match(file.state.contents, /^published: 2026-04-29$/m, "元の値を変えています");
 });
+
+/* --------------------- frontmatter の項目設定 --------------------- */
+
+/** 指定した項目IDの行を返す。 */
+const keyRow = (doc, id) => {
+  const input = doc.querySelector(`#frontmatterKeyList input[data-key-id="${id}"]`);
+  return { input, row: input?.closest("li"), toggle: input?.closest("li").querySelector("input[type=checkbox]") };
+};
+
+const pendingTexts = (doc) =>
+  [...doc.querySelectorAll("#frontmatterPendingList li")].map((item) => item.textContent);
+
+test("全ての項目が既定名で並び、note_id だけ編集できない", async () => {
+  const { doc } = await loadOptions();
+  const rows = [...doc.querySelectorAll("#frontmatterKeyList li")];
+  assert.equal(rows.length, 11);
+
+  const noteId = keyRow(doc, "note_id");
+  assert.equal(noteId.input.disabled, true, "note_id のキー名は変更できてはいけません");
+  assert.equal(noteId.toggle.disabled, true, "note_id は出力を止められてはいけません");
+
+  const published = keyRow(doc, "published");
+  assert.equal(published.input.disabled, false);
+  assert.equal(published.input.value, "published");
+});
+
+test("キー名を変えると保存され、反映待ちに出る", async () => {
+  const { win, doc, store } = await loadOptions();
+  const { input } = keyRow(doc, "published");
+  input.value = "published_at";
+  change(win, input);
+  await flush();
+
+  assert.equal(store.frontmatterKeys.published.name, "published_at");
+  assert.equal(store.frontmatterKeys.published.pendingOldName, "published");
+  assert.deepEqual(pendingTexts(doc), ["published → published_at"]);
+});
+
+test("出力を止めると反映待ちに出る", async () => {
+  const { win, doc, store } = await loadOptions();
+  const { toggle } = keyRow(doc, "author");
+  toggle.checked = false;
+  change(win, toggle);
+  await flush();
+
+  assert.equal(store.frontmatterKeys.author.enabled, false);
+  assert.deepEqual(pendingTexts(doc), ["author → 出力しない"]);
+});
+
+test("保存先フォルダが未設定でも反映待ちを表示する", async () => {
+  // 反映先が無くても、いつか設定したときに反映されることを伝える
+  const { win, doc } = await loadOptions();
+  const { input } = keyRow(doc, "published");
+  input.value = "published_at";
+  change(win, input);
+  await flush();
+
+  assert.equal(doc.getElementById("frontmatterPending").classList.contains("hidden"), false);
+});
+
+test("使えないキー名は弾いて元に戻す", async () => {
+  const { win, doc, store } = await loadOptions();
+  const { input, row } = keyRow(doc, "published");
+  for (const [value, expected] of [
+    ["has space", /英数字/],
+    ["1abc", /英数字/],
+    ["", /入力してください/],
+    ["a".repeat(21), /20文字/],
+  ]) {
+    input.value = value;
+    change(win, input);
+    await flush();
+    assert.match(doc.getElementById("frontmatterStatus").textContent, expected, `${value} を受け付けています`);
+    assert.equal(input.value, "published", "入力を元に戻していません");
+    assert.equal(row.classList.contains("is-invalid"), true);
+  }
+  assert.equal(store.frontmatterKeys, undefined, "弾いた入力を保存しています");
+});
+
+test("他の項目と同じキー名は弾く", async () => {
+  const { win, doc } = await loadOptions();
+  const { input } = keyRow(doc, "published");
+  input.value = "author";
+  change(win, input);
+  await flush();
+  assert.match(doc.getElementById("frontmatterStatus").textContent, /他の項目と同じ/);
+  assert.equal(input.value, "published");
+});
+
+test("Obsidian が特別扱いする名前には警告を出すが、保存はする", async () => {
+  const { win, doc, store } = await loadOptions();
+  const { input } = keyRow(doc, "published");
+  input.value = "aliases";
+  change(win, input);
+  await flush();
+
+  assert.match(doc.getElementById("frontmatterStatus").textContent, /特別扱い/);
+  assert.equal(store.frontmatterKeys.published.name, "aliases", "警告であって禁止ではありません");
+});
+
+test("保存済みの設定を復元する", async () => {
+  const { doc } = await loadOptions({
+    store: { frontmatterKeys: { published: { enabled: true, name: "published_at" }, author: { enabled: false } } },
+  });
+  assert.equal(keyRow(doc, "published").input.value, "published_at");
+  assert.equal(keyRow(doc, "author").toggle.checked, false);
+});
+
+/* ------------ キー名の変更が「数値を更新」で反映されるか ------------ */
+
+const renamedStore = {
+  ...LIKE_COUNT_STORE,
+  frontmatterKeys: { published: { enabled: true, name: "published_at", pendingOldName: "published" } },
+};
+
+test("更新を実行するとキー名が揃い、反映待ちが消える", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc, store } = await loadOptions({ store: renamedStore, handles: { preset1: vault } });
+  win.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: { like_count: 55, publish_at: "2026-04-29T16:24:54.000+09:00", name: "記事", user: { urlname: "hanaviye" } },
+    }),
+  });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  assert.match(
+    doc.getElementById("likeCountConfirmSkipped").textContent,
+    /published → published_at/,
+    "確認ダイアログでキー名の変更を伝えていません"
+  );
+
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.match(file.state.contents, /^published_at: 2026-04-29T16:24:54$/m);
+  assert.doesNotMatch(file.state.contents, /^published:/m, "旧名が残っています");
+  assert.match(doc.getElementById("likeCountStatus").textContent, /キー名を揃えた 1件/);
+  assert.equal(store.frontmatterKeys.published.pendingOldName, null, "完走したら保留を捨てる必要があります");
+  assert.equal(doc.getElementById("frontmatterPending").classList.contains("hidden"), true);
+});
+
+test("中止した場合は保留を残す", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc, store } = await loadOptions({ store: renamedStore, handles: { preset1: vault } });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  // 1件目の処理が始まる前に中止する
+  click(win, doc.getElementById("likeCountCancelBtn"));
+  await flush(600);
+
+  assert.equal(
+    store.frontmatterKeys?.published?.pendingOldName ?? "published",
+    "published",
+    "中止したのに保留を捨てています"
+  );
+});

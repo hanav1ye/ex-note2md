@@ -80,6 +80,9 @@ const likeCountConfirmFormEl = $("likeCountConfirmForm");
 const likeCountConfirmBodyEl = $("likeCountConfirmBody");
 const likeCountConfirmSkippedEl = $("likeCountConfirmSkipped");
 const likeCountConfirmCancelBtn = $("likeCountConfirmCancelBtn");
+const frontmatterKeyListEl = $("frontmatterKeyList");
+const frontmatterPendingEl = $("frontmatterPending");
+const frontmatterPendingListEl = $("frontmatterPendingList");
 const exportSettingsBtn = $("exportSettingsBtn");
 const importSettingsBtn = $("importSettingsBtn");
 const importSettingsInputEl = $("importSettingsInput");
@@ -97,6 +100,7 @@ const STATUS_TARGETS = {
   obsidian: "obsidian",
   image: "image",
   likeCount: "likeCount",
+  frontmatter: "frontmatter",
   transfer: "transfer",
 };
 
@@ -142,6 +146,9 @@ const statusElementByTarget = (target) => {
   }
   if (target === STATUS_TARGETS.image) {
     return imageImportStatusEl;
+  }
+  if (target === STATUS_TARGETS.frontmatter) {
+    return $("frontmatterStatus");
   }
   if (target === STATUS_TARGETS.likeCount) {
     return likeCountStatusEl;
@@ -1053,9 +1060,19 @@ const confirmLikeCountUpdate = (summary) =>
       likeCountConfirmBodyEl.textContent = t("options.likeCount.confirmBody", summary);
     }
     if (likeCountConfirmSkippedEl) {
-      likeCountConfirmSkippedEl.textContent =
-        summary.skipped > 0 ? t("options.likeCount.confirmSkipped", { count: summary.skipped }) : "";
-      likeCountConfirmSkippedEl.classList.toggle("hidden", summary.skipped === 0);
+      /*
+       * 設定画面を見ていない利用者にも、キー名の変更が反映されることを伝える。
+       * 対象外の件数と同じ欄にまとめて出す。
+       */
+      const notes = [];
+      if (summary.skipped > 0) {
+        notes.push(t("options.likeCount.confirmSkipped", { count: summary.skipped }));
+      }
+      if (summary.keyChanges) {
+        notes.push(t("options.likeCount.confirmKeyChanges", { changes: summary.keyChanges }));
+      }
+      likeCountConfirmSkippedEl.textContent = notes.join(" ");
+      likeCountConfirmSkippedEl.classList.toggle("hidden", notes.length === 0);
     }
 
     const finish = (accepted) => {
@@ -1140,9 +1157,12 @@ const fetchDashboardStats = async () => {
 };
 
 const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
+  const hasPendingKeyChanges =
+    NtmFrontmatterKeys.listPendingChanges(frontmatterKeyConfig).length > 0;
   // 同じ記事が複数ファイルにある場合に API を二度叩かないようにする。
   const likeCountCache = new Map();
   let withStats = 0;
+  let withKeyChanges = 0;
   let updated = 0;
   let unchanged = 0;
   let mismatched = 0;
@@ -1175,6 +1195,10 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
       const row = dashboard?.byNoteId.get(target.noteId);
       if (row) {
         withStats += 1;
+      }
+      // キー名の変更が残っているファイルを数える（反映できたかの手応えを出すため）。
+      if (hasPendingKeyChanges) {
+        withKeyChanges += 1;
       }
       /*
        * frontmatter は「管理する項目のブロックを作り直す」方式で書き換える。
@@ -1219,6 +1243,16 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
     }
   }
 
+  /*
+   * 完走したときだけ保留中の旧名を捨てる。
+   * 中止した場合は残したままにして、次の実行で続きを揃えられるようにする。
+   */
+  if (!likeCountCancelRequested && hasPendingKeyChanges) {
+    frontmatterKeyConfig = NtmFrontmatterKeys.clearPending(frontmatterKeyConfig);
+    await saveFrontmatterKeys();
+    renderFrontmatterPending();
+  }
+
   if (likeCountCancelRequested) {
     setStatus(
       STATUS_TARGETS.likeCount,
@@ -1240,6 +1274,7 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
       failed,
     }) +
       (withStats > 0 ? t("options.likeCount.doneStatsNote", { count: withStats }) : "") +
+      (withKeyChanges > 0 ? t("options.likeCount.doneKeyChanges", { count: withKeyChanges }) : "") +
       (dashboard?.truncated ? t("options.likeCount.statsTruncated") : "")
   );
 };
@@ -1285,11 +1320,22 @@ const runLikeCountUpdate = async ({ canRequestPermission = true } = {}) => {
       return;
     }
 
+    // 保留中のキー名の変更を、確認ダイアログで見せる文字列にする。
+    const pendingChanges = NtmFrontmatterKeys.listPendingChanges(frontmatterKeyConfig);
+    const keyChanges = pendingChanges
+      .map((change) =>
+        change.type === "disable"
+          ? t("options.frontmatter.pendingDisable", { from: change.from })
+          : t("options.frontmatter.pendingRename", { from: change.from, to: change.to })
+      )
+      .join(" / ");
+
     const accepted = await confirmLikeCountUpdate({
       folder: presetConfigs[presetId]?.folderLabel || presetDisplayName(presetId, presetConfigs[presetId]),
       total: files.length,
       targets: targets.length,
       skipped: skipped.length,
+      keyChanges,
     });
     if (!accepted) {
       clearStatus(STATUS_TARGETS.likeCount);
@@ -1435,7 +1481,122 @@ const renderParameterizedText = () => {
 };
 
 /** 現在stateをオプション画面UIへ反映する。 */
+/**
+ * frontmatter の項目設定を保存する。
+ * @returns {Promise<void>}
+ */
+const saveFrontmatterKeys = async () => {
+  await chrome.storage.local.set({ [NtmFrontmatterKeys.STORAGE_KEY]: frontmatterKeyConfig });
+};
+
+/** 反映待ちの枠を描き直す。保存先フォルダが未設定でも表示する。 */
+const renderFrontmatterPending = () => {
+  if (!frontmatterPendingEl || !frontmatterPendingListEl) {
+    return;
+  }
+  const changes = NtmFrontmatterKeys.listPendingChanges(frontmatterKeyConfig);
+  frontmatterPendingEl.classList.toggle("hidden", changes.length === 0);
+  frontmatterPendingListEl.innerHTML = "";
+  changes.forEach((change) => {
+    const item = document.createElement("li");
+    item.textContent =
+      change.type === "disable"
+        ? t("options.frontmatter.pendingDisable", { from: change.from })
+        : t("options.frontmatter.pendingRename", { from: change.from, to: change.to });
+    frontmatterPendingListEl.appendChild(item);
+  });
+};
+
+/**
+ * キー名の入力を検証して設定へ反映する。
+ * @param {string} id - 項目ID。
+ * @param {HTMLInputElement} input - 入力欄。
+ * @param {HTMLElement} row - 行要素。
+ */
+const applyFrontmatterName = (id, input, row) => {
+  const nextName = input.value.trim();
+  if (nextName === frontmatterKeyConfig[id].name) {
+    row.classList.remove("is-invalid");
+    clearStatus(STATUS_TARGETS.frontmatter);
+    return;
+  }
+
+  const result = NtmFrontmatterKeys.validateName(nextName, { id, config: frontmatterKeyConfig });
+  if (!result.ok) {
+    row.classList.add("is-invalid");
+    const messages = {
+      empty: "options.frontmatter.error.empty",
+      format: "options.frontmatter.error.format",
+      "too-long": "options.frontmatter.error.tooLong",
+      duplicate: "options.frontmatter.error.duplicate",
+      fixed: "options.frontmatter.error.fixed",
+    };
+    setStatus(STATUS_TARGETS.frontmatter, t(messages[result.reason]), "error");
+    input.value = frontmatterKeyConfig[id].name;
+    return;
+  }
+
+  row.classList.remove("is-invalid");
+  // 旧名は「まだファイルに残っているかもしれない名前」として保留する。
+  frontmatterKeyConfig = NtmFrontmatterKeys.applyRename(frontmatterKeyConfig, id, nextName);
+  void saveFrontmatterKeys();
+  renderFrontmatterPending();
+  if (NtmFrontmatterKeys.isReservedName(nextName, id)) {
+    setStatus(STATUS_TARGETS.frontmatter, t("options.frontmatter.warning.reserved", { name: nextName }), "error");
+    return;
+  }
+  setStatus(STATUS_TARGETS.frontmatter, t("options.frontmatter.saved"), "ok");
+};
+
+/** frontmatter の項目一覧を描く。 */
+const renderFrontmatterKeys = () => {
+  if (!frontmatterKeyListEl) {
+    return;
+  }
+  frontmatterKeyListEl.innerHTML = "";
+
+  NtmFrontmatterKeys.KEY_DEFS.forEach((def) => {
+    const entry = frontmatterKeyConfig[def.id];
+    const row = document.createElement("li");
+    row.className = `frontmatter-key-row${def.fixed ? " is-fixed" : ""}`;
+
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = entry.enabled;
+    toggle.disabled = def.fixed;
+    toggle.title = def.fixed ? t("options.frontmatter.fixedHint") : t("options.frontmatter.output");
+    toggle.addEventListener("change", () => {
+      frontmatterKeyConfig = {
+        ...frontmatterKeyConfig,
+        [def.id]: { ...entry, enabled: toggle.checked },
+      };
+      void saveFrontmatterKeys();
+      renderFrontmatterPending();
+      setStatus(STATUS_TARGETS.frontmatter, t("options.frontmatter.saved"), "ok");
+    });
+
+    const id = document.createElement("span");
+    id.className = "frontmatter-key-id";
+    id.textContent = def.defaultName;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = entry.name;
+    input.disabled = def.fixed;
+    input.maxLength = NtmFrontmatterKeys.NAME_MAX_LENGTH;
+    input.setAttribute("aria-label", `${def.defaultName} ${t("options.frontmatter.nameLabel")}`);
+    input.dataset.keyId = def.id;
+    input.addEventListener("change", () => applyFrontmatterName(def.id, input, row));
+
+    row.append(toggle, id, input);
+    frontmatterKeyListEl.appendChild(row);
+  });
+
+  renderFrontmatterPending();
+};
+
 const render = () => {
+  renderFrontmatterKeys();
   renderParameterizedText();
 
   if (languageSelectEl) {
