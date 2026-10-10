@@ -101,6 +101,20 @@ uses that token to query note's own subdomain.
 - Article conversion and image fetching continue to use no credentials (credentials: "omit").
 ```
 
+## 更新内容（1.3.0）
+
+ストアの「更新内容」欄にそのまま貼る。
+**1.2.0 / 1.2.1 を提出していない場合は、下の「1.2.0 から通しの文面」に 1.3.0 の行を足して使う。**
+
+```
+1.3.0
+・frontmatter の項目ごとに、書き出すかどうかを選べるように
+・frontmatter のキー名を変更できるように（例: published → published_at）
+　読み込む側の命名規則に合わせられます。note_id は記事の特定に使うため変更できません
+・設定の変更は「反映待ち」として表示し、次に「数値を更新」したときに既存ファイルへ反映します
+・設定のインポート / エクスポートに、frontmatter の項目設定を追加
+```
+
 ## 更新内容（1.2.1）
 
 ストアの「更新内容」欄にそのまま貼る。
@@ -156,6 +170,7 @@ uses that token to query note's own subdomain.
 ・UI の英語表示に対応（自動 / 日本語 / English を設定画面で切り替え）
 ・タグ候補・タグセット・Obsidian 設定を JSON でエクスポート / インポート
 ・保存済みの .md のスキ数・ページビュー数・インプレッション数を note の最新値へ一括更新
+・frontmatter の項目ごとの出力 ON/OFF とキー名の変更
 ・popup と同じ画面をサイドパネルに常設できるように（タブを移動しても閉じません）
 ・保存先プリセットを 3 → 5 に拡張
 ・マガジンページで複数選択したときに記事名が「タイトル不明」になる不具合を修正
@@ -308,8 +323,9 @@ UI を変更したら再生成すること（事前に `npm run build:dist` が�
 | `04-options-tagsets.png` | タグセットプリセット | よく使うタグの組み合わせを登録して一括適用 |
 | `05-options-obsidian.png` | Obsidian 連携 | 指定ワードを [[単語]] に変換して Obsidian へ |
 | `06-frontmatter.png` | 出力される frontmatter（サンプル値） | スキ数・ページビュー数・インプレッション数を最新値へ更新 |
+| `07-options-frontmatter.png` | frontmatter の項目設定 | 書き出す項目とキー名を、読み込む側に合わせて変更 |
 
-**掲載できるスクリーンショットは最大5枚のため、6枚から5枚を選ぶこと。** `06-frontmatter.png` を入れる場合、
+**掲載できるスクリーンショットは最大5枚のため、7枚から5枚を選ぶこと。** `06-frontmatter.png` を入れる場合、
 内容が設定項目にとどまる `03-options-image.png` を外すのが候補（画像取込方式は説明文で補える）。
 
 `06-frontmatter.png` は拡張機能のUIではなく、変換結果の frontmatter を示す図。

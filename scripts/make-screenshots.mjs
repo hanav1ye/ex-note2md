@@ -249,6 +249,7 @@ const onlySections = (keepTitleIds) => {
     "tagSetSectionTitle",
     "obsidianSectionTitle",
     "likeCountSectionTitle",
+    "frontmatterSectionTitle",
     "transferSectionTitle",
   ];
   const hidden = all
@@ -396,6 +397,22 @@ const SHOTS = [
     // 内容が短いため上下の余白を均す
     extraStyle: `${onlySections(["obsidianSectionTitle"])}
       .container { padding-top: 70px; }`,
+  },
+  {
+    name: "07-options-frontmatter",
+    page: "options",
+    // 11項目が収まるよう詰める。撮影は2倍描画なので縮めても出力は潰れない。
+    extraStyle: `${onlySections(["frontmatterSectionTitle"])}
+      .frontmatter-key-row input[type="text"] { padding: 4px 8px; }
+      .frontmatter-key-list { gap: 4px; }
+      .container { padding-top: 6px; transform: scale(0.52); transform-origin: top center; }`,
+    storage: {
+      // 改名と非表示を 1 つずつ入れて、「反映待ち」も一緒に見せる。
+      frontmatterKeys: {
+        published: { enabled: true, name: "published_at", pendingOldName: "published" },
+        author: { enabled: false, name: "author" },
+      },
+    },
   },
   {
     // 変換結果そのものを見せる1枚。拡張機能のUIではないため独立HTMLで撮る。
