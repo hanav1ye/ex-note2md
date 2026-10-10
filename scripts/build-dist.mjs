@@ -123,6 +123,7 @@ cpSync("_locales", `${DIST_DIR}/_locales`, { recursive: true });
 run('npx --no-install terser "background.js" -c -m -o "dist/background.js"');
 run('npx --no-install terser "content/content.js" -c -m -o "dist/content/content.js"');
 run('npx --no-install terser "lib/i18n.js" -c -m -o "dist/lib/i18n.js"');
+run('npx --no-install terser "lib/frontmatterKeys.js" -c -m -o "dist/lib/frontmatterKeys.js"');
 run('npx --no-install terser "lib/likeCount.js" -c -m -o "dist/lib/likeCount.js"');
 run('npx --no-install terser "lib/noteStats.js" -c -m -o "dist/lib/noteStats.js"');
 run('npx --no-install terser "lib/noteToMarkdown.js" -c -m -o "dist/lib/noteToMarkdown.js"');
@@ -138,6 +139,7 @@ const expectedOutputs = [
   "background.js",
   "content/content.js",
   "lib/i18n.js",
+  "lib/frontmatterKeys.js",
   "lib/likeCount.js",
   "lib/noteStats.js",
   "lib/noteToMarkdown.js",

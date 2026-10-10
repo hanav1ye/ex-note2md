@@ -35,6 +35,7 @@ export const readSource = (...segments) => readFileSync(join(TARGET_DIR, ...segm
  */
 export const createLibWindow = ({ html = "<!doctype html><html><body></body></html>", url } = {}) => {
   const dom = new JSDOM(html, { runScripts: "outside-only", ...(url ? { url } : {}) });
+  dom.window.eval(readSource("lib", "frontmatterKeys.js"));
   dom.window.eval(readSource("lib", "noteToMarkdown.js"));
   return dom.window;
 };

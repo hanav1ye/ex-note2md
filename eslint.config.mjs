@@ -16,6 +16,7 @@ export default [
         chrome: "readonly",
         NoteToMarkdown: "readonly",
         NtmI18n: "readonly",
+        NtmFrontmatterKeys: "readonly",
         NtmLikeCount: "readonly",
         NtmNoteStats: "readonly",
       },

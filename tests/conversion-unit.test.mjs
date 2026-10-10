@@ -474,3 +474,96 @@ test("変換時と更新時で published の形式が一致する", async () => 
     assert.equal(fromConversion, fromUpdate, `${datetime} で形式がずれています`);
   }
 });
+
+/* ---------------------- frontmatter のキー設定 ---------------------- */
+
+test("設定を触っていない利用者の出力は、この機能の前後で一致する", () => {
+  // ここが崩れると、既存利用者の次回更新で全ファイルが書き換わる。
+  const html = wrapArticle("<p>本文</p>", { title: "記事", datetime: "2026-06-04T19:19:18.000+09:00" });
+  const expected = [
+    "---",
+    "title: 記事",
+    'source: "https://note.com/hanaviye/n/nabc123"',
+    "note_id: nabc123",
+    "author: hanaviye",
+    "published: 2026-06-04T19:19:18",
+    "like_count: 17",
+    "tags:",
+    "  - 学習メモ",
+    'converted_at: "2026-01-01T00:00:00.000+09:00"',
+    "---",
+  ].join("\n");
+
+  const withoutConfig = convertArticle(html, { options: { tags: ["学習メモ"] } });
+  assert.equal(withoutConfig.markdown.split("\n\n#")[0], expected, "設定なしの出力が変わっています");
+
+  const withDefaults = convertArticle(html, { options: { tags: ["学習メモ"], frontmatterKeys: {} } });
+  assert.equal(withDefaults.markdown, withoutConfig.markdown, "既定設定が「設定なし」と違う出力になっています");
+});
+
+test("設定に従って出力しない項目を省き、キー名を差し替える", () => {
+  const { markdown } = convertArticle(wrapArticle("<p>本文</p>"), {
+    options: {
+      tags: ["学習メモ"],
+      frontmatterKeys: {
+        author: { enabled: false },
+        converted_at: { enabled: false },
+        published: { name: "published_at" },
+        tags: { name: "note_tags" },
+      },
+    },
+  });
+  assert.doesNotMatch(markdown, /^author:/m);
+  assert.doesNotMatch(markdown, /^converted_at:/m);
+  assert.match(markdown, /^published_at: /m);
+  assert.match(markdown, /^note_tags:\n {2}- 学習メモ$/m);
+});
+
+test("改名しても出力順は項目の並びのまま", () => {
+  const { markdown } = convertArticle(wrapArticle("<p>本文</p>"), {
+    options: {
+      tags: ["学習メモ"],
+      frontmatterKeys: { published: { name: "zzz_published" }, tags: { name: "aaa_tags" } },
+    },
+  });
+  const keys = markdown
+    .split("\n---")[0]
+    .split("\n")
+    .filter((line) => /^[a-z_]+:/.test(line))
+    .map((line) => line.split(":")[0]);
+  assert.deepEqual(keys, ["title", "source", "note_id", "author", "zzz_published", "like_count", "aaa_tags", "converted_at"]);
+});
+
+test("note_id は設定で消せない", () => {
+  const { markdown } = convertArticle(wrapArticle("<p>本文</p>"), {
+    options: { frontmatterKeys: { note_id: { enabled: false, name: "nid" } } },
+  });
+  assert.match(markdown, /^note_id: nabc123$/m, "note_id は常に既定名で出力される必要があります");
+});
+
+test("変換した直後のファイルを更新しても、frontmatter が変化しない", async () => {
+  // 変換（noteToMarkdown）と更新（likeCount）の生成がずれると、
+  // 設定を触っていない利用者のファイルまで毎回書き換わってしまう。
+  const vm = await import("node:vm");
+  const { readSource } = await import("./helpers/env.mjs");
+  const context = { fetch: undefined, Intl, Date, JSON };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(readSource("lib", "frontmatterKeys.js"), context);
+  vm.runInContext(readSource("lib", "likeCount.js"), context);
+
+  const converted = convertArticle(wrapArticle("<p>本文</p>", { title: "記事: 引用符が要る" }), {
+    options: { tags: ["学習メモ", "技術検証"] },
+  });
+
+  const rebuilt = context.NtmLikeCount.applyStatsToContent(converted.markdown, {
+    title: "記事: 引用符が要る",
+    source: converted.metadata.source,
+    note_id: converted.metadata.note_id,
+    author: converted.metadata.author,
+    published: converted.metadata.published,
+    like_count: converted.metadata.like_count,
+  });
+
+  assert.equal(rebuilt, converted.markdown, "変換直後のファイルが更新で書き換わっています");
+});
