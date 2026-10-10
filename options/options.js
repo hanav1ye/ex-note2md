@@ -15,6 +15,7 @@ const STORAGE_KEYS = [
   "obsidianLinkify",
   "imageImportMode",
   "imageFolderConfig",
+  "frontmatterKeys",
 ];
 const MAX_TAGS_PER_SET = 5;
 const MAX_TAG_SETS = 10;
@@ -121,6 +122,8 @@ let imageFolderConfig = { ...DEFAULT_IMAGE_FOLDER_CONFIG };
 let currentBulkTarget = BULK_TARGETS.tag;
 /** @type {Record<string, "granted"|"prompt"|"missing">} 保存済みフォルダの権限状態 */
 let permissionStates = {};
+/** frontmatter の項目設定（出力の ON/OFF・キー名・反映待ちの旧名）。 */
+let frontmatterKeyConfig = NtmFrontmatterKeys.normalizeConfig(undefined);
 
 /**
  * ステータス出力先に対応する要素を返す。
@@ -1173,13 +1176,28 @@ const applyLikeCountUpdates = async (targets, skippedCount, dashboard) => {
       if (row) {
         withStats += 1;
       }
-      const result = NtmLikeCount.buildUpdatedContentWithStats(freshContent, target.name, target.noteId, {
-        likeCount: summary.likeCount,
-        publishedAt: summary.publishedAt,
-        pageViewCount: row?.pageViewCount ?? null,
-        impressionCount: row?.impressionCount ?? null,
-        statsUpdatedAt: dashboard?.statsUpdatedAt ?? null,
-      });
+      /*
+       * frontmatter は「管理する項目のブロックを作り直す」方式で書き換える。
+       * 値が取れなかった項目（他人の記事のページビューなど）は既存の行を引き継ぐので、
+       * ここでは取れたものだけを渡す。
+       */
+      const result = NtmLikeCount.buildUpdatedContentWithStats(
+        freshContent,
+        target.name,
+        target.noteId,
+        {
+          title: summary.title,
+          source: summary.source,
+          note_id: target.noteId,
+          author: summary.author,
+          published: summary.publishedAt,
+          like_count: summary.likeCount,
+          page_view_count: row?.pageViewCount ?? null,
+          impression_count: row?.impressionCount ?? null,
+          stats_updated_at: row ? dashboard?.statsUpdatedAt ?? null : null,
+        },
+        frontmatterKeyConfig
+      );
 
       // 走査後に別物へ変わったファイルには触らない。
       if (result.status === "mismatch") {
@@ -1603,6 +1621,7 @@ const loadConfigs = async () => {
   obsidianLinkifyEnabled = Boolean(stored.obsidianLinkify);
   imageImportMode = normalizeImageImportMode(stored.imageImportMode);
   imageFolderConfig = sanitizeImageFolderConfig(stored.imageFolderConfig ?? DEFAULT_IMAGE_FOLDER_CONFIG);
+  frontmatterKeyConfig = NtmFrontmatterKeys.normalizeConfig(stored.frontmatterKeys);
   if (obsidianLinkifyEl) {
     obsidianLinkifyEl.checked = obsidianLinkifyEnabled;
   }

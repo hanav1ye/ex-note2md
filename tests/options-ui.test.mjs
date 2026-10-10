@@ -93,6 +93,7 @@ const loadOptions = async ({ store: initialStore = {}, handles = {}, uiLanguage 
   };
 
   win.eval(readSource("lib", "i18n.js"));
+  win.eval(readSource("lib", "frontmatterKeys.js"));
   win.eval(readSource("lib", "likeCount.js"));
   win.eval(readSource("options", "options.js"));
   await flush(60);

@@ -16,6 +16,7 @@ const loadLikeCount = ({ fetchImpl } = {}) => {
   const context = { fetch: fetchImpl };
   context.globalThis = context;
   vm.createContext(context);
+  vm.runInContext(readSource("lib", "frontmatterKeys.js"), context);
   vm.runInContext(readSource("lib", "likeCount.js"), context);
   return context.NtmLikeCount;
 };
@@ -266,196 +267,243 @@ test("値が変わらないなら書き込み対象にしない", () => {
   assert.equal(result.status, "unchanged");
 });
 
-/* ------------------- ダッシュボード由来の数値の書き込み ------------------- */
 
-const FRONTMATTER_SAMPLE = [
+/* ------------------- frontmatter のブロック再生成 ------------------- */
+
+const SAMPLE = [
   "---",
-  'title: "テスト記事"',
-  "source: https://note.com/hanaviye/n/n111",
+  'title: "もとのタイトル"',
+  'source: "https://note.com/hanaviye/n/n111"',
   "note_id: n111",
   "author: hanaviye",
-  "published: 2026-01-01T00:00:00+09:00",
+  "published: 2026-01-01",
   "like_count: 10",
+  "tags:",
+  "  - エンジニア",
+  "  - 学習メモ",
+  "converted_at: 2026-01-01T00:00:00.000+09:00",
   "---",
   "",
-  "# テスト記事",
+  "# 記事",
   "",
   "本文",
 ].join("\n");
 
-test("ページビュー数とインプレッション数を like_count の後ろへ足す", () => {
+/** note から取れた値（更新時に渡すもの）。 */
+const VALUES = {
+  title: "あたらしいタイトル",
+  source: "https://note.com/hanaviye/n/n111",
+  note_id: "n111",
+  author: "hanaviye",
+  published: "2026-01-01T19:19:18",
+  like_count: 46,
+  page_view_count: 120,
+  impression_count: 2949,
+  stats_updated_at: "2026-10-05T07:00:00.000Z",
+};
+
+/** frontmatter 部分だけを行の配列で取り出す。 */
+const frontmatterLines = (content) => content.split("---")[1].trim().split("\n");
+
+test("管理する項目を作り直し、値を最新に揃える", () => {
   const lib = loadLikeCount();
-  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
-    likeCount: 12,
-    pageViewCount: 340,
-    impressionCount: 5600,
-    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
-  });
-  const lines = next.split("\n");
-  assert.deepEqual(lines.slice(6, 10), [
-    "like_count: 12",
-    "page_view_count: 340",
-    "impression_count: 5600",
-    "stats_updated_at: 2026-10-05T07:00:00+09:00",
+  const next = lib.applyStatsToContent(SAMPLE, VALUES);
+  assert.deepEqual(frontmatterLines(next), [
+    "title: あたらしいタイトル",
+    'source: "https://note.com/hanaviye/n/n111"',
+    "note_id: n111",
+    "author: hanaviye",
+    "published: 2026-01-01T19:19:18",
+    "like_count: 46",
+    "page_view_count: 120",
+    "impression_count: 2949",
+    "stats_updated_at: 2026-10-05T07:00:00.000Z",
+    "tags:",
+    "  - エンジニア",
+    "  - 学習メモ",
+    "converted_at: 2026-01-01T00:00:00.000+09:00",
   ]);
-  assert.match(next, /\n# テスト記事\n/, "本文を壊していません");
+  assert.match(next, /^# 記事$/m, "本文が壊れています");
 });
 
-test("2回実行しても行が増えず、値だけ入れ替わる", () => {
+test("tags と converted_at は作り直さず、そのまま引き継ぐ", () => {
   const lib = loadLikeCount();
-  const stats = { likeCount: 12, pageViewCount: 340, impressionCount: 5600, statsUpdatedAt: "2026-10-05T07:00:00+09:00" };
-  const once = lib.applyStatsToContent(FRONTMATTER_SAMPLE, stats);
-  const twice = lib.applyStatsToContent(once, { ...stats, pageViewCount: 999 });
-  assert.equal(twice.match(/^page_view_count:/gm).length, 1);
-  assert.match(twice, /^page_view_count: 999$/m);
-  assert.equal(twice.split("\n").length, once.split("\n").length);
+  // tags は popup で選んだ利用者のもの、converted_at は「変換した日時」。
+  const next = lib.applyStatsToContent(SAMPLE, { ...VALUES, tags: ["消えるはず"], converted_at: "9999-01-01" });
+  assert.match(next, /^ {2}- エンジニア$/m);
+  assert.match(next, /^converted_at: 2026-01-01T00:00:00\.000\+09:00$/m);
+  assert.doesNotMatch(next, /9999-01-01/);
 });
 
-test("取れなかった数値はキーを足さない（他人の記事）", () => {
+test("利用者が足した項目は消さず、末尾に残す", () => {
   const lib = loadLikeCount();
-  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
-    likeCount: 12,
-    pageViewCount: null,
-    impressionCount: null,
-    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
+  const withOwn = SAMPLE.replace("author: hanaviye", "author: hanaviye\nstatus: reading\nrating: 5");
+  const next = lib.applyStatsToContent(withOwn, VALUES);
+  const lines = frontmatterLines(next);
+  assert.equal(lines.includes("status: reading"), true);
+  assert.equal(lines.includes("rating: 5"), true);
+  assert.equal(lines.at(-2), "status: reading", "未知の項目は相対順序を保って末尾へ");
+  assert.equal(lines.at(-1), "rating: 5");
+});
+
+test("値が取れなかった項目は、既存の行を引き継ぐ", () => {
+  const lib = loadLikeCount();
+  // 他人の記事ではダッシュボードの値が取れない。すでにある行を消してはいけない。
+  const withStats = lib.applyStatsToContent(SAMPLE, VALUES);
+  const next = lib.applyStatsToContent(withStats, {
+    ...VALUES,
+    page_view_count: null,
+    impression_count: null,
+    stats_updated_at: null,
   });
-  assert.match(next, /^like_count: 12$/m);
+  assert.match(next, /^page_view_count: 120$/m);
+  assert.match(next, /^impression_count: 2949$/m);
+});
+
+test("値も既存の行も無い項目は出力しない", () => {
+  const lib = loadLikeCount();
+  const next = lib.applyStatsToContent(SAMPLE, { like_count: 46 });
   assert.doesNotMatch(next, /page_view_count/);
   assert.doesNotMatch(next, /impression_count/);
-  assert.doesNotMatch(next, /stats_updated_at/, "数値が無いなら集計日時も書きません");
 });
 
-test("インプレッションだけ取れない記事ではページビューだけ書く", () => {
+test("2 回実行しても行が増えず、2 回目は内容が変わらない", () => {
   const lib = loadLikeCount();
-  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
-    likeCount: 12,
-    pageViewCount: 340,
-    impressionCount: null,
-    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
-  });
-  assert.match(next, /^page_view_count: 340$/m);
-  assert.doesNotMatch(next, /impression_count/);
-  assert.match(next, /^stats_updated_at: /m);
-});
-
-test("既にある impression_count は取れなくても消さない", () => {
-  const lib = loadLikeCount();
-  const withImpression = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
-    pageViewCount: 1,
-    impressionCount: 2,
-    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
-  });
-  const next = lib.applyStatsToContent(withImpression, { pageViewCount: 5, impressionCount: null });
-  assert.match(next, /^impression_count: 2$/m);
-  assert.match(next, /^page_view_count: 5$/m);
-});
-
-test("like_count が無い frontmatter でも published の後ろに並ぶ", () => {
-  const lib = loadLikeCount();
-  const source = FRONTMATTER_SAMPLE.replace("like_count: 10\n", "");
-  const next = lib.applyStatsToContent(source, { pageViewCount: 7, impressionCount: 8, statsUpdatedAt: "2026-10-05T07:00:00+09:00" });
-  const lines = next.split("\n");
-  const published = lines.findIndex((line) => line.startsWith("published:"));
-  assert.deepEqual(lines.slice(published + 1, published + 3), ["page_view_count: 7", "impression_count: 8"]);
+  const once = lib.applyStatsToContent(SAMPLE, VALUES);
+  const twice = lib.applyStatsToContent(once, VALUES);
+  assert.equal(twice, once, "同じ値なら 2 回目で変化してはいけません");
+  assert.equal(once.match(/^like_count:/gm).length, 1);
 });
 
 test("frontmatter が無いファイルは触らない", () => {
   const lib = loadLikeCount();
   const plain = "# 見出しだけのファイル\n\n本文";
-  assert.equal(lib.applyStatsToContent(plain, { pageViewCount: 1 }), plain);
+  assert.equal(lib.applyStatsToContent(plain, VALUES), plain);
 });
 
-test("想定外の集計日時はクォートして frontmatter を壊さない", () => {
+/* ------------------------- 出力の ON/OFF と改名 ------------------------- */
+
+test("出力しない設定の項目は、既存ファイルからも消える", () => {
   const lib = loadLikeCount();
-  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
-    pageViewCount: 1,
-    statsUpdatedAt: 'broken: "value"',
+  const next = lib.applyStatsToContent(SAMPLE, VALUES, {
+    author: { enabled: false },
+    converted_at: { enabled: false },
   });
-  assert.match(next, /^stats_updated_at: "broken: \\"value\\""$/m);
+  assert.doesNotMatch(next, /^author:/m);
+  assert.doesNotMatch(next, /^converted_at:/m);
+  assert.match(next, /^title: /m, "他の項目まで消しています");
 });
 
-test("書き込み直前の検査は数値付きでも効く（別記事なら触らない）", () => {
+test("改名すると、旧名の行が増えずに付け替わる", () => {
   const lib = loadLikeCount();
-  const stats = { likeCount: 12, pageViewCount: 1, impressionCount: 2, statsUpdatedAt: "2026-10-05T07:00:00+09:00" };
+  const next = lib.applyStatsToContent(SAMPLE, VALUES, {
+    published: { name: "published_at", pendingOldName: "published" },
+    tags: { name: "note_tags", pendingOldName: "tags" },
+  });
+  assert.match(next, /^published_at: 2026-01-01T19:19:18$/m);
+  assert.doesNotMatch(next, /^published:/m, "旧名が残っています（二重登録）");
+  assert.match(next, /^note_tags:$/m);
+  assert.doesNotMatch(next, /^tags:$/m);
+  assert.match(next, /^ {2}- エンジニア$/m, "引き継いだ値が失われています");
+});
 
-  const ok = lib.buildUpdatedContentWithStats(FRONTMATTER_SAMPLE, "n111.md", "n111", stats);
-  assert.equal(ok.status, "ok");
+test("改名しても並び順は項目のまま", () => {
+  const lib = loadLikeCount();
+  const next = lib.applyStatsToContent(SAMPLE, VALUES, {
+    published: { name: "zzz_published" },
+    tags: { name: "aaa_tags" },
+  });
+  const keys = frontmatterLines(next)
+    .filter((line) => /^[a-z_]/.test(line))
+    .map((line) => line.split(":")[0]);
+  assert.equal(keys[4], "zzz_published");
+  assert.equal(keys.at(-2), "aaa_tags");
+});
 
-  const mismatch = lib.buildUpdatedContentWithStats(FRONTMATTER_SAMPLE, "n111.md", "n999", stats);
+test("既定名のファイルも、改名後の設定で 1 回の更新で揃う", () => {
+  const lib = loadLikeCount();
+  // 保留が無くても既定名は常に照合候補に含まれる
+  const next = lib.applyStatsToContent(SAMPLE, VALUES, { published: { name: "published_at" } });
+  assert.match(next, /^published_at: /m);
+  assert.doesNotMatch(next, /^published:/m);
+});
+
+test("note_id は設定を無視して常に出力する", () => {
+  const lib = loadLikeCount();
+  const next = lib.applyStatsToContent(SAMPLE, VALUES, { note_id: { enabled: false, name: "nid" } });
+  assert.match(next, /^note_id: n111$/m);
+});
+
+test("書き込み直前の検査は作り直し方式でも効く", () => {
+  const lib = loadLikeCount();
+  assert.equal(lib.buildUpdatedContentWithStats(SAMPLE, "n111.md", "n111", VALUES).status, "ok");
+
+  const mismatch = lib.buildUpdatedContentWithStats(SAMPLE, "n111.md", "n999", VALUES);
   assert.equal(mismatch.status, "mismatch");
-  assert.equal(mismatch.content, FRONTMATTER_SAMPLE, "内容は変えません");
+  assert.equal(mismatch.content, SAMPLE, "内容を変えてはいけません");
 
-  const unchanged = lib.buildUpdatedContentWithStats(ok.content, "n111.md", "n111", stats);
-  assert.equal(unchanged.status, "unchanged", "同じ値なら書き込みません");
+  const applied = lib.buildUpdatedContentWithStats(SAMPLE, "n111.md", "n111", VALUES).content;
+  assert.equal(
+    lib.buildUpdatedContentWithStats(applied, "n111.md", "n111", VALUES).status,
+    "unchanged"
+  );
 });
 
-test("件数として不正な値は書き込まない", () => {
+/* ---------------------------- 項目の切り出し ---------------------------- */
+
+test("ぶら下がる行を直前の項目に含めて切り出す", () => {
   const lib = loadLikeCount();
-  for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5, "340", null]) {
-    const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
-      pageViewCount: value,
-      statsUpdatedAt: "2026-10-05T07:00:00+09:00",
-    });
-    assert.doesNotMatch(next, /page_view_count/, `${String(value)} を書き込んでいます`);
-    assert.doesNotMatch(next, /stats_updated_at/, `${String(value)} で集計日時だけ書き込んでいます`);
-  }
-  // 0 は正当な件数なので書き込む
-  const zero = lib.applyStatsToContent(FRONTMATTER_SAMPLE, {
-    pageViewCount: 0,
-    statsUpdatedAt: "2026-10-05T07:00:00+09:00",
-  });
-  assert.match(zero, /^page_view_count: 0$/m);
+  const entries = lib.parseFrontmatterEntries(
+    ["title: a", "tags:", "  - x", "  - y", "note_id: n1"].join("\n")
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(entries)).map((entry) => [entry.key, entry.lines.length]),
+    [
+      ["title", 1],
+      ["tags", 3],
+      ["note_id", 1],
+    ]
+  );
 });
 
-/* ------------------------- 公開日時（published） ------------------------- */
+/* ---------------------- 公開日時（API からの取得） ---------------------- */
 
-test("API の応答からスキ数と公開日時をまとめて取る", async () => {
+test("API の応答からスキ数・公開日時・タイトル・著者をまとめて取る", async () => {
   const calls = [];
   const lib = loadLikeCount();
-  const fetchImpl = async (url) => {
+  const summary = await lib.fetchNoteSummary("n111", async (url) => {
     calls.push(url);
     return {
       ok: true,
-      json: async () => ({ data: { like_count: 46, publish_at: "2026-06-04T19:19:18.000+09:00" } }),
+      json: async () => ({
+        data: {
+          like_count: 46,
+          publish_at: "2026-06-04T19:19:18.000+09:00",
+          name: "記事タイトル",
+          user: { urlname: "hanaviye" },
+          note_url: "https://note.com/hanaviye/n/n111",
+        },
+      }),
     };
-  };
-  const summary = await lib.fetchNoteSummary("n111", fetchImpl);
-  assert.deepEqual({ ...summary }, { likeCount: 46, publishedAt: "2026-06-04T19:19:18" });
-  assert.equal(calls.length, 1, "公開日時のために通信を増やしてはいけません");
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(summary)), {
+    likeCount: 46,
+    publishedAt: "2026-06-04T19:19:18",
+    title: "記事タイトル",
+    author: "hanaviye",
+    source: "https://note.com/hanaviye/n/n111",
+  });
+  assert.equal(calls.length, 1, "通信を増やしてはいけません");
 });
 
-test("公開日時が無い・壊れている応答でも落ちない", async () => {
+test("欠けているフィールドは null にする", async () => {
   const lib = loadLikeCount();
-  for (const publishAt of [undefined, "", "いつか"]) {
-    const summary = await lib.fetchNoteSummary("n111", async () => ({
-      ok: true,
-      json: async () => ({ data: { like_count: 1, publish_at: publishAt } }),
-    }));
-    assert.equal(summary.publishedAt, null, `${String(publishAt)} を日時として扱っています`);
-    assert.equal(summary.likeCount, 1);
-  }
-});
-
-test("日付だけの published を時刻入りへ揃える", () => {
-  const lib = loadLikeCount();
-  const source = FRONTMATTER_SAMPLE.replace(
-    "published: 2026-01-01T00:00:00+09:00",
-    "published: 2026-01-01"
-  );
-  const next = lib.applyStatsToContent(source, { likeCount: 12, publishedAt: "2026-01-01T09:30:00" });
-  assert.match(next, /^published: 2026-01-01T09:30:00$/m);
-  assert.equal(next.match(/^published:/gm).length, 1, "行が増えています");
-});
-
-test("published が無い frontmatter には追加する", () => {
-  const lib = loadLikeCount();
-  const source = ["---", "note_id: n111", "author: hanaviye", "---", "", "本文"].join("\n");
-  const next = lib.applyStatsToContent(source, { publishedAt: "2026-06-04T19:19:18" });
-  assert.match(next, /^author: hanaviye\npublished: 2026-06-04T19:19:18$/m);
-});
-
-test("公開日時が取れなければ published に触らない", () => {
-  const lib = loadLikeCount();
-  const next = lib.applyStatsToContent(FRONTMATTER_SAMPLE, { likeCount: 12, publishedAt: null });
-  assert.match(next, /^published: 2026-01-01T00:00:00\+09:00$/m, "元の値を変えています");
+  const summary = await lib.fetchNoteSummary("n111", async () => ({
+    ok: true,
+    json: async () => ({ data: { like_count: 1, publish_at: "いつか" } }),
+  }));
+  assert.equal(summary.publishedAt, null);
+  assert.equal(summary.title, null);
+  assert.equal(summary.author, null);
+  assert.equal(summary.likeCount, 1);
 });

@@ -477,7 +477,7 @@ test("変換時と更新時で published の形式が一致する", async () => 
 
 /* ---------------------- frontmatter のキー設定 ---------------------- */
 
-test("既定設定では、この機能が無かった頃と1バイトも変わらない", () => {
+test("設定を触っていない利用者の出力は、この機能の前後で一致する", () => {
   // ここが崩れると、既存利用者の次回更新で全ファイルが書き換わる。
   const html = wrapArticle("<p>本文</p>", { title: "記事", datetime: "2026-06-04T19:19:18.000+09:00" });
   const expected = [
@@ -539,4 +539,31 @@ test("note_id は設定で消せない", () => {
     options: { frontmatterKeys: { note_id: { enabled: false, name: "nid" } } },
   });
   assert.match(markdown, /^note_id: nabc123$/m, "note_id は常に既定名で出力される必要があります");
+});
+
+test("変換した直後のファイルを更新しても、frontmatter が変化しない", async () => {
+  // 変換（noteToMarkdown）と更新（likeCount）の生成がずれると、
+  // 設定を触っていない利用者のファイルまで毎回書き換わってしまう。
+  const vm = await import("node:vm");
+  const { readSource } = await import("./helpers/env.mjs");
+  const context = { fetch: undefined, Intl, Date, JSON };
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(readSource("lib", "frontmatterKeys.js"), context);
+  vm.runInContext(readSource("lib", "likeCount.js"), context);
+
+  const converted = convertArticle(wrapArticle("<p>本文</p>", { title: "記事: 引用符が要る" }), {
+    options: { tags: ["学習メモ", "技術検証"] },
+  });
+
+  const rebuilt = context.NtmLikeCount.applyStatsToContent(converted.markdown, {
+    title: "記事: 引用符が要る",
+    source: converted.metadata.source,
+    note_id: converted.metadata.note_id,
+    author: converted.metadata.author,
+    published: converted.metadata.published,
+    like_count: converted.metadata.like_count,
+  });
+
+  assert.equal(rebuilt, converted.markdown, "変換直後のファイルが更新で書き換わっています");
 });
