@@ -863,10 +863,7 @@ const importSettings = async (file) => {
             ? `${next.name} → ${t("options.frontmatter.output")}`
             : t("options.frontmatter.pendingDisable", { from: next.name })
         );
-        nextConfig = {
-          ...nextConfig,
-          [def.id]: { ...nextConfig[def.id], enabled: next.enabled },
-        };
+        nextConfig = NtmFrontmatterKeys.applyEnabled(nextConfig, def.id, next.enabled);
       }
     });
     if (keyChanges.length > 0) {
@@ -1620,10 +1617,11 @@ const renderFrontmatterKeys = () => {
     toggle.disabled = def.fixed;
     toggle.title = def.fixed ? t("options.frontmatter.fixedHint") : t("options.frontmatter.output");
     toggle.addEventListener("change", () => {
-      frontmatterKeyConfig = {
-        ...frontmatterKeyConfig,
-        [def.id]: { ...entry, enabled: toggle.checked },
-      };
+      frontmatterKeyConfig = NtmFrontmatterKeys.applyEnabled(
+        frontmatterKeyConfig,
+        def.id,
+        toggle.checked
+      );
       void saveFrontmatterKeys();
       renderFrontmatterPending();
       setStatus(STATUS_TARGETS.frontmatter, t("options.frontmatter.saved"), "ok");

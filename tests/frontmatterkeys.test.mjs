@@ -173,7 +173,7 @@ test("照合には現在名・保留中の旧名・既定名を使う", () => {
 test("反映待ちの変更を、改名と非表示に分けて並べる", () => {
   const keys = loadKeys();
   let config = keys.applyRename(keys.normalizeConfig(undefined), "published", "published_at");
-  config = { ...config, author: { ...config.author, enabled: false } };
+  config = keys.applyEnabled(config, "author", false);
 
   assert.deepEqual(plain(keys.listPendingChanges(config)), [
     { id: "author", type: "disable", from: "author", to: null },
@@ -184,4 +184,38 @@ test("反映待ちの変更を、改名と非表示に分けて並べる", () =>
 test("既定のままなら反映待ちは何も無い", () => {
   const keys = loadKeys();
   assert.deepEqual(plain(keys.listPendingChanges(keys.normalizeConfig(undefined))), []);
+});
+
+test("出力をやめた項目も、反映が終われば反映待ちから消える", () => {
+  // 無効であること自体は設定の状態なので、待ち続けてはいけない
+  const keys = loadKeys();
+  const disabled = keys.applyEnabled(keys.normalizeConfig(undefined), "author", false);
+  assert.deepEqual(plain(keys.listPendingChanges(disabled)), [
+    { id: "author", type: "disable", from: "author", to: null },
+  ]);
+  assert.deepEqual(plain(keys.listPendingChanges(keys.clearPending(disabled))), []);
+});
+
+test("出力をやめてすぐ戻したら、反映待ちにしない", () => {
+  const keys = loadKeys();
+  let config = keys.applyEnabled(keys.normalizeConfig(undefined), "author", false);
+  config = keys.applyEnabled(config, "author", true);
+  assert.deepEqual(plain(keys.listPendingChanges(config)), []);
+});
+
+test("出力をやめた項目は、旧名でも照合できる", () => {
+  // 改名したあとに出力をやめても、ファイルに残っている行を見つけられる必要がある
+  const keys = loadKeys();
+  let config = keys.applyRename(keys.normalizeConfig(undefined), "author", "writer");
+  config = keys.clearPending(config);
+  config = keys.applyEnabled(config, "author", false);
+  const names = keys.matchNamesFor(config, "author");
+  assert.equal(names.includes("writer"), true, "いまの名前で照合できません");
+  assert.equal(names.includes("author"), true, "既定名で照合できません");
+});
+
+test("note_id は applyEnabled でも無効にできない", () => {
+  const keys = loadKeys();
+  const config = keys.applyEnabled(keys.normalizeConfig(undefined), "note_id", false);
+  assert.equal(config.note_id.enabled, true);
 });

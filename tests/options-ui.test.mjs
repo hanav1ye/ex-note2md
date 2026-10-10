@@ -1449,3 +1449,30 @@ test("改名先の名前を利用者がすでに使っているファイルは�
   assert.match(file.state.contents, /^published_at: 手で書いた値$/m);
   assert.match(doc.getElementById("likeCountStatus").textContent, /衝突 1件/);
 });
+
+test("出力をやめた項目も、更新を実行すると反映待ちが消える", async () => {
+  const file = createMarkdownFile("nabc123.md", articleMarkdown("nabc123", 10));
+  const vault = createVaultHandle({ "nabc123.md": file });
+  const { win, doc, store } = await loadOptions({ store: LIKE_COUNT_STORE, handles: { preset1: vault } });
+
+  const { toggle } = keyRow(doc, "author");
+  toggle.checked = false;
+  change(win, toggle);
+  await flush();
+  assert.deepEqual(pendingTexts(doc), ["author → 出力しない"]);
+
+  win.fetch = async () => ({
+    ok: true,
+    json: async () => ({ data: { like_count: 55, publish_at: "2026-04-29T16:24:54.000+09:00" } }),
+  });
+  stubNoteTab(win);
+  stubConfirmModal(doc);
+  click(win, doc.getElementById("likeCountRunBtn"));
+  await flush(80);
+  acceptConfirm(win, doc);
+  await flush(600);
+
+  assert.doesNotMatch(file.state.contents, /^author:/m, "出力をやめた項目が残っています");
+  assert.deepEqual(pendingTexts(doc), [], "反映待ちが消えていません");
+  assert.equal(store.frontmatterKeys.author.pendingOldName, null);
+});
