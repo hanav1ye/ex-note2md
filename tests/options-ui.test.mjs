@@ -1444,3 +1444,32 @@ test("古い版のファイル（キー設定なし）を取り込んでも設�
   assert.equal(store.frontmatterKeys, undefined, "触っていない設定を書き込んでいます");
   assert.equal(doc.getElementById("frontmatterPending").classList.contains("hidden"), true);
 });
+
+test("項目にはキー名だけでなく呼び名を添える", async () => {
+  const { doc } = await loadOptions();
+  const rows = [...doc.querySelectorAll("#frontmatterKeyList li")];
+  const labels = rows.map((row) => row.querySelector(".frontmatter-key-label").textContent);
+  const ids = rows.map((row) => row.querySelector(".frontmatter-key-id").textContent);
+
+  assert.equal(labels[0], "タイトル");
+  assert.equal(ids[0], "title", "キー名も併記する必要があります");
+  assert.equal(labels[ids.indexOf("stats_updated_at")], "数値の集計日時");
+  assert.equal(labels[ids.indexOf("source")], "記事のURL");
+  assert.equal(labels.filter(Boolean).length, 11, "呼び名が無い項目があります");
+
+  // 改名しても、どの項目かが分かるよう既定のキー名は出したまま
+  const { doc: renamed } = await loadOptions({
+    store: { frontmatterKeys: { published: { enabled: true, name: "published_at" } } },
+  });
+  const publishedRow = renamed
+    .querySelector('#frontmatterKeyList input[data-key-id="published"]')
+    .closest("li");
+  assert.equal(publishedRow.querySelector(".frontmatter-key-label").textContent, "公開日時");
+  assert.equal(publishedRow.querySelector(".frontmatter-key-id").textContent, "published");
+});
+
+test("英語表示では呼び名も英語になる", async () => {
+  const { doc } = await loadOptions({ uiLanguage: "en" });
+  const first = doc.querySelector("#frontmatterKeyList li .frontmatter-key-label");
+  assert.equal(first.textContent, "Title");
+});
