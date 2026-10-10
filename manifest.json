@@ -43,6 +43,7 @@
       ],
       "js": [
         "lib/i18n.js",
+        "lib/frontmatterKeys.js",
         "lib/noteToMarkdown.js",
         "lib/noteStats.js",
         "content/content.js"
