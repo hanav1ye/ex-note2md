@@ -6,6 +6,7 @@
  * 検証を省略したい場合のみ --skip-verify を付ける。
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { execSync } from "node:child_process";
 import { zipDirectory } from "./zip-dir.mjs";
 
@@ -165,6 +166,28 @@ const emptyOrMissing = expectedOutputs.filter((file) => {
 });
 if (emptyOrMissing.length > 0) {
   fail(`dist の出力が不足しています: ${emptyOrMissing.join(", ")}`);
+}
+
+/*
+ * HTML が読み込む JS/CSS が dist に実在するかを確認する。
+ *
+ * テストはファイルを直接読んで評価するため、HTML の src を間違えても気づけない。
+ * 実際にブラウザで読み込んで初めて「関数が未定義」になる類の事故を、ここで止める。
+ */
+const HTML_PAGES = ["popup/popup.html", "options/options.html", "sidepanel/sidepanel.html"];
+const brokenRefs = [];
+for (const page of HTML_PAGES) {
+  const html = readFileSync(`${DIST_DIR}/${page}`, "utf8");
+  const pageDir = `${DIST_DIR}/${page}`.replace(/\/[^/]+$/, "");
+  const refs = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map((match) => match[1]);
+  for (const ref of refs) {
+    if (!existsSync(resolve(pageDir, ref))) {
+      brokenRefs.push(`${page} -> ${ref}`);
+    }
+  }
+}
+if (brokenRefs.length > 0) {
+  fail(`HTML が読み込むファイルが dist にありません: ${brokenRefs.join(", ")}`);
 }
 
 /**
