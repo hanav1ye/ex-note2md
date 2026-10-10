@@ -828,13 +828,18 @@ const copyMarkdown = async (text) => {
  * @returns {Promise<{tags: string[], obsidianLinkify: boolean, obsidianLinkWords: string[]}>} 変換オプション。
  */
 const getConversionOptions = async () => {
-  const stored = await chrome.storage.local.get(["presetObsidianLinkWords"]);
+  const stored = await chrome.storage.local.get([
+    "presetObsidianLinkWords",
+    NtmFrontmatterKeys.STORAGE_KEY,
+  ]);
   return {
     tags: normalizeUserTags(pickContext.tags),
     obsidianLinkify: Boolean(pickContext.obsidianLinkify),
     obsidianLinkWords: Array.isArray(stored.presetObsidianLinkWords)
       ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
       : [],
+    // 変換時にも利用者のキー設定を反映する。渡し忘れると設定が更新時にしか効かない。
+    frontmatterKeys: stored[NtmFrontmatterKeys.STORAGE_KEY],
   };
 };
 
@@ -1145,13 +1150,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   void (async () => {
     try {
-      const stored = await chrome.storage.local.get(["presetObsidianLinkWords"]);
+      const stored = await chrome.storage.local.get([
+        "presetObsidianLinkWords",
+        NtmFrontmatterKeys.STORAGE_KEY,
+      ]);
       const result = NoteToMarkdown.convertNotePageToMarkdown(document, location.href, {
         tags: message.tags,
         obsidianLinkify: Boolean(message.obsidianLinkify),
         obsidianLinkWords: Array.isArray(stored.presetObsidianLinkWords)
           ? stored.presetObsidianLinkWords.map((word) => String(word).trim()).filter(Boolean)
           : [],
+        // popup の「現在のタブ」変換はここを通る。渡し忘れると設定が効かない。
+        frontmatterKeys: stored[NtmFrontmatterKeys.STORAGE_KEY],
       });
       sendResponse({ ok: true, title: result.title, markdown: result.markdown, paywall: result.paywall ?? null });
     } catch (error) {
