@@ -16,6 +16,7 @@ const STORAGE_KEYS = [
   "imageImportMode",
   "imageFolderConfig",
   "frontmatterKeys",
+  "ownUrlname",
 ];
 const MAX_TAGS_PER_SET = 5;
 const MAX_TAG_SETS = 10;
@@ -75,6 +76,7 @@ const likeCountPresetHintEl = $("likeCountPresetHint");
 const likeCountRunBtn = $("likeCountRunBtn");
 const likeCountCancelBtn = $("likeCountCancelBtn");
 const likeCountStatusEl = $("likeCountStatus");
+const ownUrlnameEl = $("ownUrlname");
 const likeCountConfirmModalEl = $("likeCountConfirmModal");
 const likeCountConfirmFormEl = $("likeCountConfirmForm");
 const likeCountConfirmBodyEl = $("likeCountConfirmBody");
@@ -103,6 +105,7 @@ const STATUS_TARGETS = {
   image: "image",
   likeCount: "likeCount",
   frontmatter: "frontmatter",
+  ownUrlname: "ownUrlname",
   transfer: "transfer",
 };
 
@@ -130,6 +133,7 @@ let currentBulkTarget = BULK_TARGETS.tag;
 let permissionStates = {};
 /** frontmatter の項目設定（出力の ON/OFF・キー名・反映待ちの旧名）。 */
 let frontmatterKeyConfig = NtmFrontmatterKeys.normalizeConfig(undefined);
+let ownUrlname = "";
 
 /**
  * ステータス出力先に対応する要素を返す。
@@ -151,6 +155,9 @@ const statusElementByTarget = (target) => {
   }
   if (target === STATUS_TARGETS.frontmatter) {
     return $("frontmatterStatus");
+  }
+  if (target === STATUS_TARGETS.ownUrlname) {
+    return $("ownUrlnameStatus");
   }
   if (target === STATUS_TARGETS.likeCount) {
     return likeCountStatusEl;
@@ -679,7 +686,12 @@ const buildTransferPayload = () => ({
   tagSets: presetTagSets.map((set) => ({ name: set.name, tags: [...set.tags] })),
   obsidianLinkWords: [...presetObsidianLinkWords],
   obsidianLinkify: obsidianLinkifyEnabled,
-  // 保留中の旧名は端末ごとの状態なので持ち出さない。
+  /*
+   * 自分の note ID（ownUrlname）は含めない。設定ファイルを人に渡したときに、
+   * 相手の環境で別人の ID が入ってしまうため。
+   *
+   * 保留中の旧名も端末ごとの状態なので持ち出さない。
+   */
   frontmatterKeys: Object.fromEntries(
     NtmFrontmatterKeys.KEY_IDS.map((id) => [
       id,
@@ -1468,6 +1480,33 @@ const consumePendingLikeCountRun = async () => {
   await runLikeCountUpdate({ canRequestPermission: false });
 };
 
+/* --------------------------- 自分の note ID --------------------------- */
+
+/**
+ * 入力値から note の urlname を取り出す。
+ *
+ * URL を貼られることを見込んで、note.com のURLなら1段目を使う。
+ * 記事ページの URL（`/{urlname}/n/{id}`）を貼っても urlname だけが残る。
+ * @param {string} raw - 入力値。
+ * @returns {string} urlname。取り出せなければ空文字。
+ */
+const extractUrlname = (raw) => {
+  const value = String(raw ?? "").trim();
+  if (!value) {
+    return "";
+  }
+  const fromUrl = value.match(/^https?:\/\/note\.com\/([^/?#]+)/i);
+  const candidate = (fromUrl ? fromUrl[1] : value).toLowerCase();
+  return /^[a-z0-9_]{1,32}$/.test(candidate) ? candidate : "";
+};
+
+/** 保存済みの自分の note ID を入力欄へ反映する。 */
+const renderOwnUrlname = () => {
+  if (ownUrlnameEl) {
+    ownUrlnameEl.value = ownUrlname;
+  }
+};
+
 /* ---------------------------- プリセット欄の生成 ---------------------------- */
 
 /**
@@ -1895,6 +1934,8 @@ const loadConfigs = async () => {
   imageImportMode = normalizeImageImportMode(stored.imageImportMode);
   imageFolderConfig = sanitizeImageFolderConfig(stored.imageFolderConfig ?? DEFAULT_IMAGE_FOLDER_CONFIG);
   frontmatterKeyConfig = NtmFrontmatterKeys.normalizeConfig(stored.frontmatterKeys);
+  ownUrlname = extractUrlname(stored.ownUrlname);
+  renderOwnUrlname();
   if (obsidianLinkifyEl) {
     obsidianLinkifyEl.checked = obsidianLinkifyEnabled;
   }
@@ -1916,6 +1957,25 @@ const bindEvents = () => {
       t("options.language.saved", {
         label: t(`options.language.${NtmI18n.getSetting()}`),
       })
+    );
+  });
+
+  ownUrlnameEl?.addEventListener("change", async () => {
+    const next = extractUrlname(ownUrlnameEl.value);
+    if (!next && ownUrlnameEl.value.trim()) {
+      // 弾いた値を欄に残すと、保存できたように見えてしまう。
+      renderOwnUrlname();
+      setStatus(STATUS_TARGETS.ownUrlname, t("options.ownUrlname.invalid"));
+      return;
+    }
+    ownUrlname = next;
+    await chrome.storage.local.set({ ownUrlname });
+    renderOwnUrlname();
+    setStatus(
+      STATUS_TARGETS.ownUrlname,
+      next
+        ? t("options.ownUrlname.saved", { urlname: next })
+        : t("options.ownUrlname.cleared")
     );
   });
 

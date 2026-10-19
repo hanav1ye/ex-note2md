@@ -1709,3 +1709,69 @@ test("反映済みのフォルダを選び直したら、キー名の変更を�
     "反映済みのフォルダなのに案内しています"
   );
 });
+
+
+/* ---------------------------- 自分の note ID ---------------------------- */
+
+test("自分の note ID を保存して復元する", async () => {
+  const { doc, store } = await loadOptions();
+
+  const input = doc.getElementById("ownUrlname");
+  input.value = "hanaviye";
+  input.dispatchEvent(new doc.defaultView.Event("change"));
+  await flush(20);
+
+  assert.equal(store.ownUrlname, "hanaviye");
+
+  const reopened = await loadOptions({ store: { ownUrlname: "hanaviye" } });
+  assert.equal(reopened.doc.getElementById("ownUrlname").value, "hanaviye");
+});
+
+test("URL を貼っても note ID を取り出す", async () => {
+  // プロフィールや記事ページの URL をそのまま貼る人がいる想定
+  const { doc, store } = await loadOptions();
+  const input = doc.getElementById("ownUrlname");
+
+  input.value = "https://note.com/hanaviye/n/n2c4a89eb7a8a";
+  input.dispatchEvent(new doc.defaultView.Event("change"));
+  await flush(20);
+
+  assert.equal(store.ownUrlname, "hanaviye", "記事ページの URL から urlname を取り出せていません");
+  assert.equal(input.value, "hanaviye", "入力欄が取り出した値に揃っていません");
+});
+
+test("note ID として読めない値は保存しない", async () => {
+  const { doc, store } = await loadOptions({ store: { ownUrlname: "hanaviye" } });
+  const input = doc.getElementById("ownUrlname");
+
+  input.value = "花冷 さん";
+  input.dispatchEvent(new doc.defaultView.Event("change"));
+  await flush(20);
+
+  assert.equal(store.ownUrlname, "hanaviye", "弾いた値で上書きしています");
+  assert.equal(input.value, "hanaviye", "弾いた値が欄に残り、保存できたように見えます");
+  assert.match(doc.getElementById("ownUrlnameStatus").textContent, /note ID/);
+});
+
+test("空にすると未登録へ戻す", async () => {
+  const { doc, store } = await loadOptions({ store: { ownUrlname: "hanaviye" } });
+  const input = doc.getElementById("ownUrlname");
+
+  input.value = "";
+  input.dispatchEvent(new doc.defaultView.Event("change"));
+  await flush(20);
+
+  assert.equal(store.ownUrlname, "");
+  assert.match(doc.getElementById("ownUrlnameStatus").textContent, /未登録/);
+});
+
+test("大文字で入れても小文字で保存する", async () => {
+  const { doc, store } = await loadOptions();
+  const input = doc.getElementById("ownUrlname");
+
+  input.value = "Hanaviye";
+  input.dispatchEvent(new doc.defaultView.Event("change"));
+  await flush(20);
+
+  assert.equal(store.ownUrlname, "hanaviye");
+});

@@ -654,8 +654,12 @@ test("ページ上の変換でも frontmatter のキー設定が効く", async (
 
 const marksOf = (win) => [...(shadowOf(win)?.querySelectorAll(".dl-mark") ?? [])];
 
+/* 印は登録した自分の一覧でだけ出るため、既定で登録済みにしておく。 */
+const OWN = { ownUrlname: "hanaviye" };
+
 test("保存済みの記事にだけ印を付ける", async () => {
   const { win, send } = loadContentScript({
+    store: OWN,
     downloadedNotes: {
       ok: true,
       found: { n111: ["Obsidian"] },
@@ -677,7 +681,7 @@ test("保存済みの記事にだけ印を付ける", async () => {
 
 test("除外する一覧項目は問い合わせない", async () => {
   // プロフィール・仕事依頼は記事ではないため、保存先を調べる対象から外す
-  const { send, downloadedQueries } = loadContentScript();
+  const { send, downloadedQueries } = loadContentScript({ store: OWN });
 
   await send({ type: "showDownloadedMarks" });
 
@@ -692,6 +696,7 @@ test("同じ記事への複数のリンクは1回だけ問い合わせ、どち�
 </div>
 </body></html>`;
   const { win, send, downloadedQueries } = loadContentScript({
+    store: OWN,
     html,
     downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
   });
@@ -708,6 +713,7 @@ test("押し直すと印を引き直す", async () => {
   // 1件保存済みの状態で確認し、そのあとファイルが消えた場合を作る
   let answer = { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 };
   const { win, send } = loadContentScript({
+    store: OWN,
     downloadedNotes: new Proxy({}, { get: (_t, key) => answer[key] }),
   });
 
@@ -723,6 +729,7 @@ test("押し直すと印を引き直す", async () => {
 
 test("保存先フォルダが未設定なら印を付けずに知らせる", async () => {
   const { win, send } = loadContentScript({
+    store: OWN,
     downloadedNotes: { ok: true, found: {}, unreadable: [], configured: 0 },
   });
 
@@ -735,6 +742,7 @@ test("保存先フォルダが未設定なら印を付けずに知らせる", as
 
 test("記事一覧でないページでは印を付けずに知らせる", async () => {
   const { send } = loadContentScript({
+    store: OWN,
     html: '<!doctype html><html><body><p>記事リンクなし</p></body></html>',
   });
 
@@ -753,6 +761,7 @@ test("他の拡張機能からの確認依頼は処理しない", async () => {
 test("消えたリンクの印はスクロール時に片付ける", async () => {
   // note 側の再描画でカードが入れ替わると、印だけが画面に取り残される
   const { win, send } = loadContentScript({
+    store: OWN,
     downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
   });
   await send({ type: "showDownloadedMarks" });
@@ -806,6 +815,7 @@ for (const [label, url, html] of [
 ]) {
   test(`${label}では押しても何も起きない`, async () => {
     const { win, send, downloadedQueries } = loadContentScript({
+    store: OWN,
       url,
       html,
       downloadedNotes: SAVED_EVERYTHING,
@@ -828,6 +838,7 @@ test("自分の一覧では、おすすめに混ざった他人の記事を問�
 </div>
 </body></html>`;
   const { win, send, downloadedQueries } = loadContentScript({
+    store: OWN,
     url: "https://note.com/hanaviye",
     html,
     downloadedNotes: SAVED_EVERYTHING,
@@ -847,6 +858,7 @@ test("マガジンページでも、そのクリエイターの記事に印を�
 </div>
 </body></html>`;
   const { win, send } = loadContentScript({
+    store: OWN,
     url: "https://note.com/hanaviye/m/mfdf8198c41ab",
     html,
     downloadedNotes: SAVED_EVERYTHING,
@@ -860,7 +872,57 @@ test("マガジンページでも、そのクリエイターの記事に印を�
 
 test("すべての記事を表示するページでも印を付ける", async () => {
   const { win, send } = loadContentScript({
+    store: OWN,
     url: "https://note.com/hanaviye/all",
+    downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.ok, true);
+  assert.equal(marksOf(win).length, 1);
+});
+
+
+test("自分の note ID が未登録なら何もしない", async () => {
+  // 登録前に動くと、他人のページでも保存状況が見える状態になってしまう
+  const { win, send, downloadedQueries } = loadContentScript({
+    store: {},
+    downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.ok, false);
+  assert.match(response.error, /自分の note ID/);
+  assert.deepEqual([...downloadedQueries], [], "保存先フォルダへ問い合わせています");
+  assert.equal(marksOf(win).length, 0);
+});
+
+test("他のクリエイターの一覧では何もしない", async () => {
+  const html = `<!doctype html><html><body>
+<div class="mx-auto w-full max-w-[var(--size-content)]">
+  <a href="/hebodan/n/n111">他人の記事</a>
+</div>
+</body></html>`;
+  const { win, send, downloadedQueries } = loadContentScript({
+    store: OWN,
+    url: "https://note.com/hebodan",
+    html,
+    downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.ok, false);
+  assert.match(response.error, /hanaviye/);
+  assert.deepEqual([...downloadedQueries], [], "保存先フォルダへ問い合わせています");
+  assert.equal(marksOf(win).length, 0);
+});
+
+test("note ID の大文字小文字は区別しない", async () => {
+  const { win, send } = loadContentScript({
+    store: { ownUrlname: "Hanaviye" },
     downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
   });
 

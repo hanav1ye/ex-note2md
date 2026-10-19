@@ -484,20 +484,36 @@ const getListCreator = () => {
  *   total は一覧で見つかった記事数、marked は印を付けた数。
  */
 const showDownloadedMarks = async () => {
+  // 記事一覧の画面でなければ、ここで終わる（保存先フォルダには触れない）。
+  const creator = getListCreator();
+  if (!creator) {
+    return { ok: false, error: t("content.error.notArticleList") };
+  }
+
+  /*
+   * 自分の記事の管理に使う機能なので、登録した自分の一覧ページだけで動かす。
+   * 未登録のときは何もしない。他人のページで保存状況を見られる経路を残さないため。
+   */
+  const { ownUrlname } = await chrome.storage.local.get(["ownUrlname"]);
+  const own = String(ownUrlname ?? "").trim().toLowerCase();
+  if (!own) {
+    return { ok: false, error: t("content.error.ownUrlnameUnset") };
+  }
+  if (creator.toLowerCase() !== own) {
+    return { ok: false, error: t("content.error.notOwnList", { urlname: own }) };
+  }
+
   /*
    * 一覧の持ち主の記事だけを対象にする。おすすめ欄などに混ざる他人の記事を
    * 保存先へ問い合わせないため、絞り込みは background へ渡す前に行う。
    */
-  const creator = getListCreator();
-  const candidates = creator
-    ? getRenderedArticleCandidates().filter(({ url }) => {
-        try {
-          return new URL(url).pathname.startsWith(`/${creator}/n/`);
-        } catch {
-          return false;
-        }
-      })
-    : [];
+  const candidates = getRenderedArticleCandidates().filter(({ url }) => {
+    try {
+      return new URL(url).pathname.startsWith(`/${creator}/n/`);
+    } catch {
+      return false;
+    }
+  });
   if (candidates.length === 0) {
     return { ok: false, error: t("content.error.notArticleList") };
   }

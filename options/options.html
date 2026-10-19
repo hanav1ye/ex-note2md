@@ -158,6 +158,23 @@
       </div>
     </section>
 
+    <section class="settings-section" aria-labelledby="ownUrlnameSectionTitle">
+      <h2 id="ownUrlnameSectionTitle" class="settings-section-title" data-i18n="options.ownUrlname.title">自分の note ID</h2>
+      <p class="hint inline" data-i18n="options.ownUrlname.hint">
+        ダウンロード済みの印は、ここで登録したアカウントの記事一覧でだけ表示します。未登録のあいだは表示しません。
+      </p>
+      <div class="settings-card">
+        <label>
+          <span data-i18n="options.ownUrlname.label">note ID（urlname）</span>
+          <input id="ownUrlname" type="text" inputmode="url" spellcheck="false" placeholder="hanaviye" />
+        </label>
+        <p class="hint inline" data-i18n="options.ownUrlname.formatHint">
+          note.com/ の次に入る文字列です。記事ページやプロフィールの URL をそのまま貼っても取り出します。
+        </p>
+        <div id="ownUrlnameStatus" class="status" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
     <section class="settings-section" aria-labelledby="likeCountSectionTitle">
       <h2 id="likeCountSectionTitle" class="settings-section-title" data-i18n="options.likeCount.title">スキ数を更新</h2>
       <p class="hint inline" data-i18n="options.likeCount.hint">
