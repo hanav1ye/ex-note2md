@@ -571,24 +571,28 @@ test("変換した直後のファイルを更新しても、frontmatter が変�
 
 /* ---------------------------- 一覧ページの判定 ---------------------------- */
 
-test("一覧ページの持ち主を URL から判定する", () => {
-  const { NoteToMarkdown } = createLibWindow();
+test("URL の1段目を返し、記事ページとトップは外す", () => {
   /*
-   * ダウンロード済みの印を出す画面を決める判定。実ページで測った各画面を固定する。
-   * 記事ページを通すと、本文の埋め込みカードと末尾のおすすめ欄（実測43件・
-   * 著者以外5名以上）が一覧とみなされてしまう。
+   * この関数は「一覧かどうか」までは決めない。返した名前が自分の note ID と
+   * 一致するかを、呼び出し元がセッション由来の ID と見比べて判定する。
+   * そのため note 側の予約パス（search / tag など）をここで数え上げない。
+   *
+   * 記事ページだけは例外で外す。著者の urlname は自分の ID と一致してしまうが、
+   * 本文の埋め込みカードと末尾のおすすめ欄に記事が並ぶため（実測42件）。
    */
+  const { NoteToMarkdown } = createLibWindow();
   const cases = [
-    // 対応するのはクリエイターページとマガジンの2つだけ。
+    // 自分の ID 配下なら、形を問わず名前を返す。
     ["https://note.com/hanaviye", "hanaviye"],
     ["https://note.com/hanaviye/", "hanaviye"],
     ["https://note.com/hanaviye?f=new", "hanaviye"],
+    ["https://note.com/hanaviye/all", "hanaviye"],
     ["https://note.com/hanaviye/m/mfdf8198c41ab", "hanaviye"],
-    ["https://note.com/hanaviye/m/", "hanaviye"],
-    // 一覧ではあるが対象外。押しても何も起きない。
-    ["https://note.com/hanaviye/all", ""],
-    ["https://note.com/hanaviye/magazines", ""],
-    ["https://note.com/hanaviye/membership", ""],
+    // 呼び出し元で ID と比べて外れるもの。
+    ["https://note.com/search?q=markdown", "search"],
+    ["https://note.com/tag/個人開発", "tag"],
+    ["https://note.com/sitesettings/stats", "sitesettings"],
+    // ここで外すもの。
     ["https://note.com/hanaviye/n/n2c4a89eb7a8a", ""],
     ["https://note.com/hanaviye/n/n2c4a89eb7a8a?magazine_key=m1", ""],
     ["https://note.com/", ""],
@@ -605,28 +609,4 @@ test("一覧ページの持ち主を URL から判定する", () => {
       `${url} の判定が想定と違います`
     );
   });
-});
-
-test("note 側の画面は一覧とみなさない", () => {
-  const { NoteToMarkdown } = createLibWindow();
-  [
-    "https://note.com/tag/個人開発",
-    "https://note.com/hashtag/個人開発",
-    "https://note.com/sitesettings/stats",
-    "https://note.com/notes/n111/edit",
-    "https://note.com/settings/account",
-  ].forEach((url) => {
-    assert.equal(NoteToMarkdown.listCreatorFromUrl(url), "", `${url} を一覧とみなしています`);
-  });
-});
-
-test("1段しかないパスは、形だけではクリエイターと見分けられない", () => {
-  /*
-   * `note.com/search` は `note.com/hanaviye` と同じ形なので、URL だけでは弾けない。
-   * ここで予約パスを並べて持つかわりに、`/{creator}/n/...` という記事リンクが
-   * ページにあるかで判定している（検索結果に `/search/n/...` は無い）。
-   * 画面として除外されることは tests/content-ui.test.mjs で固めている。
-   */
-  const { NoteToMarkdown } = createLibWindow();
-  assert.equal(NoteToMarkdown.listCreatorFromUrl("https://note.com/search?q=markdown"), "search");
 });

@@ -675,6 +675,10 @@ const ownNotes = (...noteIds) => ({
     this.calls += 1;
     return { ok: true, rows: noteIds.map((noteId) => ({ noteId })), statsUpdatedAt: null };
   },
+  // 自分の記事 1 件から urlname を引く経路。
+  async fetchOwnUrlname() {
+    return "hanaviye";
+  },
 });
 
 /* 既定では、一覧に出てくる記事がすべて自分のものだとしておく。 */
@@ -835,8 +839,6 @@ for (const [label, url, html] of [
   ["検索結果", "https://note.com/search?q=markdown", FOREIGN_LIST_HTML],
   ["ハッシュタグ", "https://note.com/tag/個人開発", FOREIGN_LIST_HTML],
   ["ダッシュボード", "https://note.com/sitesettings/stats", FOREIGN_LIST_HTML],
-  ["すべての記事", "https://note.com/hanaviye/all", PAGE_HTML],
-  ["メンバーシップ", "https://note.com/hanaviye/membership", PAGE_HTML],
 ]) {
   test(`${label}では押しても何も起きない`, async () => {
     const stats = OWN();
@@ -967,8 +969,52 @@ test("押し直してもダッシュボードへ問い合わせ直さない", as
   assert.equal(stats.calls, 1, "押すたびにダッシュボードへ問い合わせています");
 });
 
-test("自分の記事が並ぶ一覧だと確かめたら、持ち主の名前を控える", async () => {
-  // popup / サイドパネルが、押す前の可否表示に使う
+for (const [label, url] of [
+  ["クリエイターページ", "https://note.com/hanaviye"],
+  ["すべての記事", "https://note.com/hanaviye/all"],
+  ["マガジン", "https://note.com/hanaviye/m/mfdf8198c41ab"],
+]) {
+  test(`自分の ID 配下なら ${label} でも印を付ける`, async () => {
+    /*
+     * 自分の note ID と見比べているので、ページの形を列挙する必要がない。
+     * note 側に一覧の種類が増えても追従が要らない。
+     */
+    const { win, send } = loadContentScript({
+      url,
+      noteStats: OWN(),
+      downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
+    });
+
+    const response = await send({ type: "showDownloadedMarks" });
+
+    assert.equal(response.ok, true);
+    assert.equal(marksOf(win).length, 1);
+  });
+}
+
+test("他人の一覧は、自分の note ID との比較で外れる", async () => {
+  // セッションから取った名前と見比べるので、一覧の中身に関係なく弾ける
+  const html = `<!doctype html><html><body>
+<div class="mx-auto w-full max-w-[var(--size-content)]">
+  <a href="/hebodan/n/n111">他人の記事（たまたま自分も保存済み）</a>
+</div>
+</body></html>`;
+  const { win, send, downloadedQueries } = loadContentScript({
+    url: "https://note.com/hebodan",
+    html,
+    noteStats: ownNotes("n111"),
+    downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.ok, false);
+  assert.match(response.error, /hanaviye/);
+  assert.deepEqual([...downloadedQueries], [], "保存先フォルダへ問い合わせています");
+  assert.equal(marksOf(win).length, 0);
+});
+
+test("自分の note ID を控えて、押す前の可否表示に使えるようにする", async () => {
   const { send, win } = loadContentScript({
     noteStats: OWN(),
     downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },

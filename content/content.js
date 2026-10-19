@@ -33,10 +33,11 @@ let uiShadowRoot = null;
 /** 表示中のダウンロード済みの印。{anchor, el} の組を位置の付け直しのために持つ。 */
 let downloadedMarks = [];
 /*
- * ログイン中のアカウント自身の記事 ID。ページを開いている間だけ覚えておく。
- * スクロールして押し直すたびにダッシュボードへ問い合わせないため。
+ * ログイン中のアカウントの記事 ID と note ID（urlname）。
+ * ページを開いている間だけ覚えておく。スクロールして押し直すたびに
+ * ダッシュボードへ問い合わせないため。
  */
-let ownNoteIdsCache = null;
+let ownIdentityCache = null;
 let downloadedReflowHandle = 0;
 let downloadedReflowBound = false;
 
@@ -479,9 +480,9 @@ const getListCreator = () => NoteToMarkdown.listCreatorFromUrl(location.href);
  * 新しく書いた記事は、ページを再読み込みすれば入ってくる。
  * @returns {Promise<{ok: true, ids: Set<string>}|{ok: false, error: string}>} 記事IDの集合。
  */
-const getOwnNoteIds = async () => {
-  if (ownNoteIdsCache) {
-    return { ok: true, ids: ownNoteIdsCache };
+const getOwnIdentity = async () => {
+  if (ownIdentityCache) {
+    return { ok: true, ...ownIdentityCache };
   }
 
   let result = null;
@@ -506,10 +507,32 @@ const getOwnNoteIds = async () => {
     };
   }
 
-  ownNoteIdsCache = new Set(
+  const ids = new Set(
     result.rows.map((row) => String(row?.noteId ?? "").trim()).filter(Boolean)
   );
-  return { ok: true, ids: ownNoteIdsCache };
+
+  /*
+   * 自分の記事が1件でもあれば、その1件から自分の note ID を引く。
+   * これで URL の1段目と見比べられるようになり、どのページでも
+   * 「自分の一覧かどうか」を名前で判定できる。
+   */
+  const [firstId] = ids;
+  const urlname = firstId ? await NtmNoteStats.fetchOwnUrlname(firstId) : "";
+
+  if (urlname) {
+    /*
+     * popup / サイドパネルが、ボタンを押す前の可否表示に使う。
+     * 入力ではなくセッションから取った名前なので、ここで保存する。
+     */
+    try {
+      await chrome.storage.local.set({ verifiedOwnUrlname: urlname });
+    } catch {
+      // 控えられなくても、この実行自体には影響しない
+    }
+  }
+
+  ownIdentityCache = { ids, urlname };
+  return { ok: true, ...ownIdentityCache };
 };
 
 /**
@@ -530,10 +553,10 @@ const showDownloadedMarks = async () => {
   /*
    * 先に、この一覧の持ち主の記事リンクだけに絞る。
    *
-   * `note.com/search` のように1段だけのパスは形では見分けられないが、
-   * `/search/n/...` という記事リンクは無いのでここで 0 件になる。
-   * note 側の予約パスを並べて持たずに済み、対象外の画面では以降の
-   * ダッシュボードへの問い合わせ自体が起きない。
+   * 記事リンクが1件もなければ、そもそも一覧ではない。`note.com/search` なら
+   * `/search/n/...` というリンクは無いのでここで 0 件になる。
+   * この安い検査を先に置くことで、関係のない画面でセッションを使った
+   * 問い合わせを起こさずに済ませる。
    */
   const onPage = getRenderedArticleCandidates().filter(({ url }) => {
     try {
@@ -547,13 +570,21 @@ const showDownloadedMarks = async () => {
   }
 
   /*
-   * 自分の記事かどうかは、ログイン中のセッションで note 自身に確かめる。
-   * ダッシュボードが返すのは利用者自身の記事だけなので、これが持ち主の担保になる。
+   * 自分が誰なのかを、ログイン中のセッションで note 自身に確かめる。
+   * ダッシュボードが返すのは利用者自身の記事だけなので、これが担保になる。
    * 利用者に自分の note ID を入力させる方式は採らない（自己申告になるため）。
    */
-  const owned = await getOwnNoteIds();
+  const owned = await getOwnIdentity();
   if (!owned.ok) {
     return { ok: false, error: owned.error };
+  }
+
+  /*
+   * 自分の note ID が分かっているので、URL の1段目と見比べる。
+   * これで `/search` のような note 側の画面も、他人の一覧も名前で外れる。
+   */
+  if (owned.urlname && creator.toLowerCase() !== owned.urlname) {
+    return { ok: false, error: t("content.error.notOwnList", { urlname: owned.urlname }) };
   }
 
   /*
@@ -571,17 +602,6 @@ const showDownloadedMarks = async () => {
 
   if (byNoteId.size === 0) {
     return { ok: false, error: t("content.error.noOwnOnPage") };
-  }
-
-  /*
-   * 自分の記事が並んでいる一覧だと分かったので、持ち主の名前を控える。
-   * popup / サイドパネルが、ボタンを押す前の可否表示に使う。
-   * 入力ではなくセッションで確かめた結果なので、ここで初めて保存する。
-   */
-  try {
-    await chrome.storage.local.set({ verifiedOwnUrlname: creator.toLowerCase() });
-  } catch {
-    // 控えられなくても、この実行自体には影響しない
   }
 
   const response = await chrome.runtime.sendMessage({
