@@ -32,6 +32,11 @@ let uiShadowRoot = null;
 
 /** 表示中のダウンロード済みの印。{anchor, el} の組を位置の付け直しのために持つ。 */
 let downloadedMarks = [];
+/*
+ * ログイン中のアカウント自身の記事 ID。ページを開いている間だけ覚えておく。
+ * スクロールして押し直すたびにダッシュボードへ問い合わせないため。
+ */
+let ownNoteIdsCache = null;
 let downloadedReflowHandle = 0;
 let downloadedReflowBound = false;
 
@@ -464,6 +469,50 @@ const clearDownloadedMarks = () => {
 const getListCreator = () => NoteToMarkdown.listCreatorFromUrl(location.href);
 
 /**
+ * ログイン中のアカウント自身の記事 ID を、note のダッシュボードから取る。
+ *
+ * ダッシュボードは利用者自身の記事しか返さないため、ここで得た集合が
+ * 「自分の記事かどうか」の担保になる。トークンには urlname が入っていないので、
+ * 名前で突き合わせるのではなく、記事 ID の集合で判定する。
+ *
+ * 同じページで押し直すたびに取り直さないよう、ページを開いている間は覚えておく。
+ * 新しく書いた記事は、ページを再読み込みすれば入ってくる。
+ * @returns {Promise<{ok: true, ids: Set<string>}|{ok: false, error: string}>} 記事IDの集合。
+ */
+const getOwnNoteIds = async () => {
+  if (ownNoteIdsCache) {
+    return { ok: true, ids: ownNoteIdsCache };
+  }
+
+  let result = null;
+  try {
+    result = await NtmNoteStats.fetchAllStats();
+  } catch (error) {
+    // instanceof Error はレルムをまたぐと偽になるため message を直接見る。
+    const reason = String(error?.message ?? "");
+    return {
+      ok: false,
+      error: reason === "unauthenticated" ? t("stats.error.notLoggedIn") : t("stats.error.fetchFailed"),
+    };
+  }
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      error:
+        result.code === "not-logged-in"
+          ? t("stats.error.notLoggedIn")
+          : t("stats.error.tokenUnavailable"),
+    };
+  }
+
+  ownNoteIdsCache = new Set(
+    result.rows.map((row) => String(row?.noteId ?? "").trim()).filter(Boolean)
+  );
+  return { ok: true, ids: ownNoteIdsCache };
+};
+
+/**
  * 一覧に描画されている記事のうち、保存済みのものへ印を付ける。
  *
  * 判定は background（保存先フォルダを見られるのは Service Worker 側）に任せ、
@@ -479,32 +528,30 @@ const showDownloadedMarks = async () => {
   }
 
   /*
-   * 自分の記事の管理に使う機能なので、登録した自分の一覧ページだけで動かす。
-   * 未登録のときは何もしない。他人のページで保存状況を見られる経路を残さないため。
+   * 自分の記事かどうかは、ログイン中のセッションで note 自身に確かめる。
+   * ダッシュボードが返すのは利用者自身の記事だけなので、これが持ち主の担保になる。
+   * 利用者に自分の note ID を入力させる方式は採らない（自己申告になるため）。
    */
-  const { ownUrlname } = await chrome.storage.local.get(["ownUrlname"]);
-  const own = String(ownUrlname ?? "").trim().toLowerCase();
-  if (!own) {
-    return { ok: false, error: t("content.error.ownUrlnameUnset") };
-  }
-  if (creator.toLowerCase() !== own) {
-    return { ok: false, error: t("content.error.notOwnList", { urlname: own }) };
+  const owned = await getOwnNoteIds();
+  if (!owned.ok) {
+    return { ok: false, error: owned.error };
   }
 
   /*
-   * 一覧の持ち主の記事だけを対象にする。おすすめ欄などに混ざる他人の記事を
-   * 保存先へ問い合わせないため、絞り込みは background へ渡す前に行う。
+   * 一覧の持ち主の記事で、かつ自分の記事のものだけを対象にする。
+   * おすすめ欄などに混ざる他人の記事を保存先へ問い合わせないため、
+   * 絞り込みは background へ渡す前に行う。
    */
   const candidates = getRenderedArticleCandidates().filter(({ url }) => {
     try {
-      return new URL(url).pathname.startsWith(`/${creator}/n/`);
+      if (!new URL(url).pathname.startsWith(`/${creator}/n/`)) {
+        return false;
+      }
     } catch {
       return false;
     }
+    return owned.ids.has(NoteToMarkdown.extractNoteIdFromUrl(url));
   });
-  if (candidates.length === 0) {
-    return { ok: false, error: t("content.error.notArticleList") };
-  }
 
   // 同じ記事へのリンクが複数あることがあるため、問い合わせは note_id で重複を除く。
   const byNoteId = new Map();
@@ -517,7 +564,18 @@ const showDownloadedMarks = async () => {
   });
 
   if (byNoteId.size === 0) {
-    return { ok: false, error: t("content.error.notArticleList") };
+    return { ok: false, error: t("content.error.noOwnOnPage") };
+  }
+
+  /*
+   * 自分の記事が並んでいる一覧だと分かったので、持ち主の名前を控える。
+   * popup / サイドパネルが、ボタンを押す前の可否表示に使う。
+   * 入力ではなくセッションで確かめた結果なので、ここで初めて保存する。
+   */
+  try {
+    await chrome.storage.local.set({ verifiedOwnUrlname: creator.toLowerCase() });
+  } catch {
+    // 控えられなくても、この実行自体には影響しない
   }
 
   const response = await chrome.runtime.sendMessage({

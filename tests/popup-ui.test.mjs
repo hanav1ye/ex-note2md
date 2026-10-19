@@ -658,7 +658,7 @@ const downloadedCheckTooltip = async (url, store = {}) => {
 
 test("自分の一覧を開いているときは、機能の説明を出す", async () => {
   const { title, unavailable } = await downloadedCheckTooltip("https://note.com/hanaviye", {
-    ownUrlname: "hanaviye",
+    verifiedOwnUrlname: "hanaviye",
   });
 
   assert.match(title, /印/);
@@ -668,16 +668,17 @@ test("自分の一覧を開いているときは、機能の説明を出す", as
 test("記事ページでは「当画面でこの機能は利用できません。」と出す", async () => {
   const { title, unavailable } = await downloadedCheckTooltip(
     "https://note.com/hanaviye/n/n2c4a89eb7a8a",
-    { ownUrlname: "hanaviye" }
+    { verifiedOwnUrlname: "hanaviye" }
   );
 
   assert.equal(title, "当画面でこの機能は利用できません。");
   assert.equal(unavailable, true);
 });
 
-test("他のクリエイターの一覧でも利用できない旨を出す", async () => {
+test("確かめた持ち主と違う一覧では、利用できない旨を出す", async () => {
+  // 一度でも自分の一覧で確かめていれば、押す前に分かる
   const { title } = await downloadedCheckTooltip("https://note.com/hebodan", {
-    ownUrlname: "hanaviye",
+    verifiedOwnUrlname: "hanaviye",
   });
 
   assert.equal(title, "当画面でこの機能は利用できません。");
@@ -685,18 +686,21 @@ test("他のクリエイターの一覧でも利用できない旨を出す", as
 
 test("note.com 以外のページでも利用できない旨を出す", async () => {
   const { title } = await downloadedCheckTooltip("https://example.com/", {
-    ownUrlname: "hanaviye",
+    verifiedOwnUrlname: "hanaviye",
   });
 
   assert.equal(title, "当画面でこの機能は利用できません。");
 });
 
-test("自分の note ID が未登録なら、画面のせいにせず設定を案内する", async () => {
-  // 「当画面では使えない」と出すと、設定すれば使えることが伝わらない
-  const { title, unavailable } = await downloadedCheckTooltip("https://note.com/hanaviye", {});
+test("持ち主を確かめる前は、使えるものとして説明を出す", async () => {
+  /*
+   * 持ち主の判定はセッションで note に確かめるため、押すまで分からない。
+   * 一度確かめるまでは通し、押したときに content script が理由を返す。
+   */
+  const { title, unavailable } = await downloadedCheckTooltip("https://note.com/hebodan", {});
 
-  assert.match(title, /自分の note ID/);
-  assert.equal(unavailable, true);
+  assert.match(title, /印/);
+  assert.equal(unavailable, false);
 });
 
 test("ボタンは disabled にしない（説明が読めなくなるため）", async () => {

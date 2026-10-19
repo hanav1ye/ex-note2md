@@ -63,8 +63,13 @@ frontmatter にはタイトル・URL・note ID・著者・公開日時・スキ�
 「プライバシーへの取り組み」タブで、ログインセッションの利用について問われた場合に使う文面。
 
 ```
-「数値を更新」機能で、利用者自身の記事のページビュー数・インプレッション数を取得する場合にのみ、
-利用者が note.com にログインしている状態を利用します。
+次の2つの機能でのみ、利用者が note.com にログインしている状態を利用します。
+
+1. 「数値を更新」で、利用者自身の記事のページビュー数・インプレッション数を取得する
+2. 「ダウンロード済みの確認」で、一覧に並んでいる記事のどれが利用者自身の記事かを確かめる
+
+2 は、この機能を自分の記事の管理用に限るためのものです。利用者に自分の note ID を
+入力させる方式では自己申告になり、他人の記事一覧を対象にできてしまいます。
 
 これらの数値は note のダッシュボードにのみ存在し、公開 API では取得できません。そのため、
 利用者が開いている note.com のページ上で、note 自身のダッシュボードと同じ手順で一時トークン
@@ -74,6 +79,7 @@ frontmatter にはタイトル・URL・note ID・著者・公開日時・スキ�
   第三者へ送信することはありません。開発者が運営するサーバーは存在しません。
 ・取得するのは利用者自身の記事のページビュー数・インプレッション数と、その集計日時だけです。
   売上金額は問い合わせに含めていないため、受け取ってもいません。
+・「ダウンロード済みの確認」で使うのは、このうち利用者自身の記事の ID だけです。
 ・パスワードの読み取りは行いません。ログイン状態の確認は note 自身が行い、本拡張機能は
   その結果として発行されたトークンを使うだけです。トークンは保存しません。
 ・利用者がこの機能を実行しない限り、この通信は一切発生しません。
@@ -83,8 +89,13 @@ frontmatter にはタイトル・URL・note ID・著者・公開日時・スキ�
 英語版:
 
 ```
-The extension uses the user's logged-in note.com session only for the "Refresh stats" feature,
-to read page view and impression counts for the user's own articles.
+The extension uses the user's logged-in note.com session only for two features:
+
+1. "Refresh stats", to read page view and impression counts for the user's own articles.
+2. "Check downloaded", to confirm which of the listed articles belong to the user.
+
+(2) keeps that feature limited to managing the user's own articles. Asking the user to type
+their own note ID would be self-asserted and could be pointed at someone else's article list.
 
 These numbers exist only in note's dashboard and are not available from any public API. The
 extension therefore asks note to issue a short-lived token (valid for 30 minutes) from within a
