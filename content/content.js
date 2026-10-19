@@ -456,6 +456,26 @@ const clearDownloadedMarks = () => {
 };
 
 /**
+ * 1人のクリエイターの記事一覧ページなら、その持ち主の urlname を返す。
+ *
+ * ダウンロード済みの印は自分の記事の管理に使うものなので、
+ * 「1人のクリエイターの記事が並んでいる画面」に限る。
+ * トップ・検索結果・ハッシュタグは1段目が記事の持ち主にならないため外れる。
+ *
+ * 記事ページ（`/{urlname}/n/{id}`）は明示的に外す。1段目は著者の urlname に
+ * なるが、本文の埋め込みカードと末尾のおすすめ欄に同じ著者の記事が並ぶため、
+ * 外さないと記事を読んでいる最中に反応してしまう。
+ * @returns {string} クリエイターの urlname。一覧ページでなければ空文字。
+ */
+const getListCreator = () => {
+  const segments = location.pathname.split("/").filter(Boolean);
+  if (segments.length === 0 || segments[1] === "n") {
+    return "";
+  }
+  return segments[0];
+};
+
+/**
  * 一覧に描画されている記事のうち、保存済みのものへ印を付ける。
  *
  * 判定は background（保存先フォルダを見られるのは Service Worker 側）に任せ、
@@ -464,9 +484,22 @@ const clearDownloadedMarks = () => {
  *   total は一覧で見つかった記事数、marked は印を付けた数。
  */
 const showDownloadedMarks = async () => {
-  const candidates = getRenderedArticleCandidates();
+  /*
+   * 一覧の持ち主の記事だけを対象にする。おすすめ欄などに混ざる他人の記事を
+   * 保存先へ問い合わせないため、絞り込みは background へ渡す前に行う。
+   */
+  const creator = getListCreator();
+  const candidates = creator
+    ? getRenderedArticleCandidates().filter(({ url }) => {
+        try {
+          return new URL(url).pathname.startsWith(`/${creator}/n/`);
+        } catch {
+          return false;
+        }
+      })
+    : [];
   if (candidates.length === 0) {
-    return { ok: false, error: t("content.error.noListArticles") };
+    return { ok: false, error: t("content.error.notArticleList") };
   }
 
   // 同じ記事へのリンクが複数あることがあるため、問い合わせは note_id で重複を除く。
@@ -480,7 +513,7 @@ const showDownloadedMarks = async () => {
   });
 
   if (byNoteId.size === 0) {
-    return { ok: false, error: t("content.error.noListArticles") };
+    return { ok: false, error: t("content.error.notArticleList") };
   }
 
   const response = await chrome.runtime.sendMessage({

@@ -19,13 +19,19 @@ const PAGE_HTML = `<!doctype html><html><body>
  * content script を読み込んだページ環境を作る。
  * @param {{store?: object, html?: string, noteStats?: object, downloadedNotes?: object}} [options={}]
  *   chrome.storage.local の初期値・ページHTML・差し替える依存。
- *   downloadedNotes は background の listDownloadedNotes の応答。
+ *   downloadedNotes は background の listDownloadedNotes の応答、url は開いているページ。
  * @returns {{win: import("jsdom").DOMWindow, send: Function, downloads: string[], downloadedQueries: string[][]}}
  *   テスト環境。downloadedQueries は background へ渡した note_id の記録。
  */
-const loadContentScript = ({ store = {}, html = PAGE_HTML, noteStats, downloadedNotes } = {}) => {
+const loadContentScript = ({
+  store = {},
+  html = PAGE_HTML,
+  noteStats,
+  downloadedNotes,
+  url = "https://note.com/hanaviye",
+} = {}) => {
   const dom = new JSDOM(html, {
-    url: "https://note.com/hanaviye",
+    url,
     runScripts: "outside-only",
     pretendToBeVisual: true,
   });
@@ -735,7 +741,7 @@ test("記事一覧でないページでは印を付けずに知らせる", async
   const response = await send({ type: "showDownloadedMarks" });
 
   assert.equal(response.ok, false);
-  assert.match(response.error, /記事リンク/);
+  assert.match(response.error, /記事一覧/);
 });
 
 test("他の拡張機能からの確認依頼は処理しない", async () => {
@@ -757,4 +763,109 @@ test("消えたリンクの印はスクロール時に片付ける", async () =>
   await flush(40);
 
   assert.equal(marksOf(win).length, 0, "消えた記事の印が残っています");
+});
+
+
+/* ------------------ 印を付ける画面を記事一覧に限る ------------------ */
+
+/*
+ * 実ページで測った構造に合わせたHTML。
+ * 記事ページは本文の埋め込みカードと末尾のおすすめ欄に、著者本人と他人の
+ * 記事が並ぶ（実測で43件・著者以外5名以上）。
+ */
+const ARTICLE_PAGE_HTML = `<!doctype html><html><body>
+<article>
+  <a href="/hanaviye/n/n315470bf18a2">埋め込みカード（著者の別記事）</a>
+</article>
+<section>
+  <a href="/hanaviye/n/n0f8ab9693bca">おすすめ（著者の別記事）</a>
+  <a href="/hebodan/n/nef6e621706fb">おすすめ（他人の記事）</a>
+</section>
+</body></html>`;
+
+const FOREIGN_LIST_HTML = `<!doctype html><html><body>
+<div class="mx-auto w-full max-w-[var(--size-content)]">
+  <a href="/grsn_note/n/n111">他人の記事1</a>
+  <a href="/qier___3/n/n222">他人の記事2</a>
+</div>
+</body></html>`;
+
+const SAVED_EVERYTHING = {
+  ok: true,
+  found: { n111: ["Obsidian"], n222: ["Obsidian"], n315470bf18a2: ["Obsidian"], n0f8ab9693bca: ["Obsidian"] },
+  unreadable: [],
+  configured: 1,
+};
+
+for (const [label, url, html] of [
+  ["記事ページ", "https://note.com/hanaviye/n/n2c4a89eb7a8a", ARTICLE_PAGE_HTML],
+  ["トップページ", "https://note.com/", FOREIGN_LIST_HTML],
+  ["検索結果", "https://note.com/search?q=markdown", FOREIGN_LIST_HTML],
+  ["ハッシュタグ", "https://note.com/tag/個人開発", FOREIGN_LIST_HTML],
+  ["ダッシュボード", "https://note.com/sitesettings/stats", FOREIGN_LIST_HTML],
+]) {
+  test(`${label}では押しても何も起きない`, async () => {
+    const { win, send, downloadedQueries } = loadContentScript({
+      url,
+      html,
+      downloadedNotes: SAVED_EVERYTHING,
+    });
+
+    const response = await send({ type: "showDownloadedMarks" });
+
+    assert.equal(response.ok, false, "一覧ではない画面で印を付けようとしています");
+    assert.deepEqual([...downloadedQueries], [], "保存先フォルダへ問い合わせています");
+    assert.equal(marksOf(win).length, 0);
+  });
+}
+
+test("自分の一覧では、おすすめに混ざった他人の記事を問い合わせない", async () => {
+  // 一覧の脇に他人の記事が並ぶようになっても、持ち主の記事だけを見る
+  const html = `<!doctype html><html><body>
+<div class="mx-auto w-full max-w-[var(--size-content)]">
+  <a href="/hanaviye/n/n111">自分の記事</a>
+  <a href="/hebodan/n/n222">他人の記事（おすすめ枠）</a>
+</div>
+</body></html>`;
+  const { win, send, downloadedQueries } = loadContentScript({
+    url: "https://note.com/hanaviye",
+    html,
+    downloadedNotes: SAVED_EVERYTHING,
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.deepEqual([...downloadedQueries[0]], ["n111"], "他人の記事まで問い合わせています");
+  assert.equal(response.total, 1);
+  assert.equal(marksOf(win).length, 1);
+});
+
+test("マガジンページでも、そのクリエイターの記事に印を付ける", async () => {
+  const html = `<!doctype html><html><body>
+<div>
+  <a href="/hanaviye/n/n111">自分の記事</a>
+</div>
+</body></html>`;
+  const { win, send } = loadContentScript({
+    url: "https://note.com/hanaviye/m/mfdf8198c41ab",
+    html,
+    downloadedNotes: SAVED_EVERYTHING,
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.ok, true);
+  assert.equal(marksOf(win).length, 1);
+});
+
+test("すべての記事を表示するページでも印を付ける", async () => {
+  const { win, send } = loadContentScript({
+    url: "https://note.com/hanaviye/all",
+    downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.ok, true);
+  assert.equal(marksOf(win).length, 1);
 });
