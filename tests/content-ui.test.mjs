@@ -835,12 +835,15 @@ for (const [label, url, html] of [
   ["検索結果", "https://note.com/search?q=markdown", FOREIGN_LIST_HTML],
   ["ハッシュタグ", "https://note.com/tag/個人開発", FOREIGN_LIST_HTML],
   ["ダッシュボード", "https://note.com/sitesettings/stats", FOREIGN_LIST_HTML],
+  ["すべての記事", "https://note.com/hanaviye/all", PAGE_HTML],
+  ["メンバーシップ", "https://note.com/hanaviye/membership", PAGE_HTML],
 ]) {
   test(`${label}では押しても何も起きない`, async () => {
+    const stats = OWN();
     const { win, send, downloadedQueries } = loadContentScript({
-    noteStats: OWN(),
       url,
       html,
+      noteStats: stats,
       downloadedNotes: SAVED_EVERYTHING,
     });
 
@@ -848,6 +851,7 @@ for (const [label, url, html] of [
 
     assert.equal(response.ok, false, "一覧ではない画面で印を付けようとしています");
     assert.deepEqual([...downloadedQueries], [], "保存先フォルダへ問い合わせています");
+    assert.equal(stats.calls, 0, "対象外の画面でダッシュボードへ問い合わせています");
     assert.equal(marksOf(win).length, 0);
   });
 }
@@ -892,25 +896,6 @@ test("マガジンページでも、そのクリエイターの記事に印を�
   assert.equal(response.ok, true);
   assert.equal(marksOf(win).length, 1);
 });
-
-test("すべての記事を表示するページでも印を付ける", async () => {
-  const { win, send } = loadContentScript({
-    noteStats: OWN(),
-    url: "https://note.com/hanaviye/all",
-    downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
-  });
-
-  const response = await send({ type: "showDownloadedMarks" });
-
-  assert.equal(response.ok, true);
-  assert.equal(marksOf(win).length, 1);
-});
-
-
-
-
-
-
 
 test("ダッシュボードに無い記事には印を付けない", async () => {
   /*

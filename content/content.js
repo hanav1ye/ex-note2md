@@ -528,6 +528,25 @@ const showDownloadedMarks = async () => {
   }
 
   /*
+   * 先に、この一覧の持ち主の記事リンクだけに絞る。
+   *
+   * `note.com/search` のように1段だけのパスは形では見分けられないが、
+   * `/search/n/...` という記事リンクは無いのでここで 0 件になる。
+   * note 側の予約パスを並べて持たずに済み、対象外の画面では以降の
+   * ダッシュボードへの問い合わせ自体が起きない。
+   */
+  const onPage = getRenderedArticleCandidates().filter(({ url }) => {
+    try {
+      return new URL(url).pathname.startsWith(`/${creator}/n/`);
+    } catch {
+      return false;
+    }
+  });
+  if (onPage.length === 0) {
+    return { ok: false, error: t("content.error.notArticleList") };
+  }
+
+  /*
    * 自分の記事かどうかは、ログイン中のセッションで note 自身に確かめる。
    * ダッシュボードが返すのは利用者自身の記事だけなので、これが持ち主の担保になる。
    * 利用者に自分の note ID を入力させる方式は採らない（自己申告になるため）。
@@ -538,26 +557,13 @@ const showDownloadedMarks = async () => {
   }
 
   /*
-   * 一覧の持ち主の記事で、かつ自分の記事のものだけを対象にする。
-   * おすすめ欄などに混ざる他人の記事を保存先へ問い合わせないため、
-   * 絞り込みは background へ渡す前に行う。
+   * 同じ記事へのリンクが複数あることがあるため、問い合わせは note_id で重複を除く。
+   * 自分の記事でないものは、保存先へ問い合わせる前にここで落とす。
    */
-  const candidates = getRenderedArticleCandidates().filter(({ url }) => {
-    try {
-      if (!new URL(url).pathname.startsWith(`/${creator}/n/`)) {
-        return false;
-      }
-    } catch {
-      return false;
-    }
-    return owned.ids.has(NoteToMarkdown.extractNoteIdFromUrl(url));
-  });
-
-  // 同じ記事へのリンクが複数あることがあるため、問い合わせは note_id で重複を除く。
   const byNoteId = new Map();
-  candidates.forEach((candidate) => {
+  onPage.forEach((candidate) => {
     const noteId = NoteToMarkdown.extractNoteIdFromUrl(candidate.url);
-    if (!noteId) {
+    if (!noteId || !owned.ids.has(noteId)) {
       return;
     }
     byNoteId.set(noteId, [...(byNoteId.get(noteId) ?? []), candidate.anchor]);

@@ -579,9 +579,16 @@ test("一覧ページの持ち主を URL から判定する", () => {
    * 著者以外5名以上）が一覧とみなされてしまう。
    */
   const cases = [
+    // 対応するのはクリエイターページとマガジンの2つだけ。
     ["https://note.com/hanaviye", "hanaviye"],
-    ["https://note.com/hanaviye/all", "hanaviye"],
+    ["https://note.com/hanaviye/", "hanaviye"],
+    ["https://note.com/hanaviye?f=new", "hanaviye"],
     ["https://note.com/hanaviye/m/mfdf8198c41ab", "hanaviye"],
+    ["https://note.com/hanaviye/m/", "hanaviye"],
+    // 一覧ではあるが対象外。押しても何も起きない。
+    ["https://note.com/hanaviye/all", ""],
+    ["https://note.com/hanaviye/magazines", ""],
+    ["https://note.com/hanaviye/membership", ""],
     ["https://note.com/hanaviye/n/n2c4a89eb7a8a", ""],
     ["https://note.com/hanaviye/n/n2c4a89eb7a8a?magazine_key=m1", ""],
     ["https://note.com/", ""],
@@ -600,13 +607,26 @@ test("一覧ページの持ち主を URL から判定する", () => {
   });
 });
 
-test("検索やハッシュタグは1段目が記事の持ち主にならない", () => {
+test("note 側の画面は一覧とみなさない", () => {
   const { NoteToMarkdown } = createLibWindow();
-  // note 側の予約パスを並べて持たずに済ませている。後段の突き合わせで外れる
+  [
+    "https://note.com/tag/個人開発",
+    "https://note.com/hashtag/個人開発",
+    "https://note.com/sitesettings/stats",
+    "https://note.com/notes/n111/edit",
+    "https://note.com/settings/account",
+  ].forEach((url) => {
+    assert.equal(NoteToMarkdown.listCreatorFromUrl(url), "", `${url} を一覧とみなしています`);
+  });
+});
+
+test("1段しかないパスは、形だけではクリエイターと見分けられない", () => {
+  /*
+   * `note.com/search` は `note.com/hanaviye` と同じ形なので、URL だけでは弾けない。
+   * ここで予約パスを並べて持つかわりに、`/{creator}/n/...` という記事リンクが
+   * ページにあるかで判定している（検索結果に `/search/n/...` は無い）。
+   * 画面として除外されることは tests/content-ui.test.mjs で固めている。
+   */
+  const { NoteToMarkdown } = createLibWindow();
   assert.equal(NoteToMarkdown.listCreatorFromUrl("https://note.com/search?q=markdown"), "search");
-  assert.equal(NoteToMarkdown.listCreatorFromUrl("https://note.com/tag/個人開発"), "tag");
-  assert.equal(
-    NoteToMarkdown.listCreatorFromUrl("https://note.com/sitesettings/stats"),
-    "sitesettings"
-  );
 });
