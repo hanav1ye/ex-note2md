@@ -22,6 +22,12 @@ const createDirectoryHandle = ({ name = "root", permission = "granted" } = {}) =
     directories,
     queryPermission: async () => permission,
     requestPermission: async () => permission,
+    // フォルダ列挙を呼んでいないことを確かめるために記録する。
+    entriesCalls: 0,
+    entries: () => {
+      handle.entriesCalls += 1;
+      return [...files.keys()].map((fileName) => [fileName, { kind: "file" }])[Symbol.iterator]();
+    },
     getDirectoryHandle: async (dirName, { create } = {}) => {
       if (/[/\\]/.test(dirName) || dirName === "..") {
         throw Object.assign(new Error("invalid name"), { name: "TypeError" });
@@ -506,4 +512,150 @@ test("他の拡張機能からのメッセージは処理しない", async () =>
 test("未知のメッセージ種別には応答しない", async () => {
   const { send } = loadBackground();
   assert.equal(await send({ type: "unknown" }), undefined);
+});
+
+
+/* --------------------------- 保存済み記事の照合 --------------------------- */
+
+/**
+ * ファイルを置いた状態のスタブハンドルを作る。
+ * @param {string[]} fileNames - 置くファイル名。
+ * @param {{name?: string, permission?: string}} [options={}] - ハンドルの指定。
+ * @returns {object} スタブハンドル。
+ */
+const createHandleWithFiles = (fileNames, options = {}) => {
+  const handle = createDirectoryHandle(options);
+  fileNames.forEach((fileName) => handle.files.set(fileName, { contents: "" }));
+  return handle;
+};
+
+test("保存済みの記事を、見つかった保存先の名前付きで返す", async () => {
+  const { send } = loadBackground({
+    store: {
+      presetConfigs: {
+        preset1: { name: "Obsidian", folderLabel: "Vault", hasFolder: true },
+        preset2: { name: "バックアップ", folderLabel: "Backup", hasFolder: true },
+      },
+    },
+    handles: {
+      preset1: createHandleWithFiles(["n111.md"]),
+      preset2: createHandleWithFiles(["n111.md", "n222.md"]),
+    },
+  });
+
+  const response = await send({ type: "listDownloadedNotes", noteIds: ["n111", "n222", "n333"] });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(response.found)), {
+    n111: ["Obsidian", "バックアップ"],
+    n222: ["バックアップ"],
+  });
+  assert.equal(response.configured, 2);
+  assert.deepEqual([...response.unreadable], []);
+});
+
+test("フォルダを列挙せず、ファイル名で引き当てる", async () => {
+  /*
+   * 列挙すると、保存先にノート全体のフォルダを指定している場合に件数へ比例して遅くなり、
+   * 利用者の無関係なファイル名まで読むことになる。
+   */
+  const handle = createHandleWithFiles(["n111.md", "私のメモ.md"]);
+  const { send } = loadBackground({
+    store: { presetConfigs: { preset1: { name: "P1", folderLabel: "Notes", hasFolder: true } } },
+    handles: { preset1: handle },
+  });
+
+  const response = await send({ type: "listDownloadedNotes", noteIds: ["n111"] });
+
+  assert.equal(response.ok, true);
+  assert.equal(handle.entriesCalls, 0, "フォルダを列挙しています");
+});
+
+test("権限が無い保存先は、確認できなかったものとして返す", async () => {
+  // 印が付かないことを「未保存」と読まれると、取り逃がしたまま気付けない
+  const { send } = loadBackground({
+    store: {
+      presetConfigs: {
+        preset1: { name: "Obsidian", folderLabel: "Vault", hasFolder: true },
+        preset2: { name: "別のフォルダ", folderLabel: "Other", hasFolder: true },
+      },
+    },
+    handles: {
+      preset1: createHandleWithFiles(["n111.md"]),
+      preset2: createHandleWithFiles(["n222.md"], { permission: "prompt" }),
+    },
+  });
+
+  const response = await send({ type: "listDownloadedNotes", noteIds: ["n111", "n222"] });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response.found)), { n111: ["Obsidian"] });
+  assert.deepEqual([...response.unreadable], ["別のフォルダ"]);
+});
+
+test("ハンドルが失われた保存先も、確認できなかったものとして返す", async () => {
+  const { send } = loadBackground({
+    store: { presetConfigs: { preset1: { name: "P1", folderLabel: "Notes", hasFolder: true } } },
+    handles: {},
+  });
+
+  const response = await send({ type: "listDownloadedNotes", noteIds: ["n111"] });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response.found)), {});
+  assert.deepEqual([...response.unreadable], ["P1"]);
+});
+
+test("保存先が未設定なら configured は 0 になる", async () => {
+  const { send } = loadBackground({ store: {}, handles: {} });
+
+  const response = await send({ type: "listDownloadedNotes", noteIds: ["n111"] });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.configured, 0);
+});
+
+test("空や不正な note_id は問い合わせない", async () => {
+  const handle = createHandleWithFiles(["note-article.md"]);
+  const { send } = loadBackground({
+    store: { presetConfigs: { preset1: { name: "P1", folderLabel: "Notes", hasFolder: true } } },
+    handles: { preset1: handle },
+  });
+
+  const response = await send({ type: "listDownloadedNotes", noteIds: ["", "  ", "///"] });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response.found)), {});
+});
+
+test("確認の途中で読めなくなっても、他の保存先の結果は返す", async () => {
+  const broken = createHandleWithFiles(["n111.md"]);
+  broken.getFileHandle = async () => {
+    throw Object.assign(new Error("permission revoked"), { name: "NotAllowedError" });
+  };
+  const { send } = loadBackground({
+    store: {
+      presetConfigs: {
+        preset1: { name: "壊れたフォルダ", folderLabel: "Broken", hasFolder: true },
+        preset2: { name: "Obsidian", folderLabel: "Vault", hasFolder: true },
+      },
+    },
+    handles: { preset1: broken, preset2: createHandleWithFiles(["n111.md"]) },
+  });
+
+  const response = await send({ type: "listDownloadedNotes", noteIds: ["n111"] });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(response.found)), { n111: ["Obsidian"] });
+  assert.deepEqual([...response.unreadable], ["壊れたフォルダ"]);
+});
+
+test("記事が多い一覧でも、すべての記事を調べる", async () => {
+  // 一覧をスクロールし続けると記事が積み上がる。同時実行の取りこぼしが無いこと
+  const noteIds = Array.from({ length: 150 }, (_, index) => `n${String(index).padStart(12, "0")}`);
+  const { send } = loadBackground({
+    store: { presetConfigs: { preset1: { name: "P1", folderLabel: "Notes", hasFolder: true } } },
+    handles: { preset1: createHandleWithFiles(noteIds.map((id) => `${id}.md`)) },
+  });
+
+  const response = await send({ type: "listDownloadedNotes", noteIds });
+
+  assert.equal(Object.keys(response.found).length, 150);
 });

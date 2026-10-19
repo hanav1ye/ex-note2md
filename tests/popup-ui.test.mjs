@@ -546,3 +546,81 @@ test("変換時にも frontmatter のキー設定が効く", async () => {
   assert.doesNotMatch(copied, /^published:/m);
   assert.doesNotMatch(copied, /^author:/m, "出力しない設定が変換に反映されていません");
 });
+
+
+/* --------------------- ダウンロード済みの確認ボタン --------------------- */
+
+test("ボタンを押すと一覧へ印を付けるよう依頼し、件数を知らせる", async () => {
+  const { win, doc } = await loadPopup();
+  const sent = [];
+  win.chrome.tabs.sendMessage = async (tabId, message) => {
+    sent.push(message);
+    return { ok: true, total: 12, marked: 5, unreadable: [] };
+  };
+
+  doc.getElementById("checkDownloadedBtn").click();
+  await flush(40);
+
+  assert.deepEqual(
+    sent.map((message) => message.type),
+    ["showDownloadedMarks"]
+  );
+  assert.match(doc.getElementById("status").textContent, /12/);
+  assert.match(doc.getElementById("status").textContent, /5/);
+  assert.equal(doc.getElementById("status").className, "status ok");
+});
+
+test("確認できなかったフォルダがあるときは必ず知らせる", async () => {
+  /*
+   * 印が無いことを「未保存」と読まれると、落とし忘れに気付けないまま終わる。
+   * 件数だけ出して黙るのは避ける。
+   */
+  const { win, doc } = await loadPopup();
+  win.chrome.tabs.sendMessage = async () => ({
+    ok: true,
+    total: 12,
+    marked: 5,
+    unreadable: ["別のフォルダ"],
+  });
+
+  doc.getElementById("checkDownloadedBtn").click();
+  await flush(40);
+
+  const status = doc.getElementById("status");
+  assert.match(status.textContent, /別のフォルダ/);
+  assert.equal(status.className, "status skip", "注意として扱われていません");
+});
+
+test("note.com 以外のタブでは押しても何も依頼しない", async () => {
+  const { win, doc } = await loadPopup();
+  win.chrome.tabs.query = async () => [{ id: 1, url: "https://example.com/", title: "別のページ" }];
+  let called = false;
+  win.chrome.tabs.sendMessage = async () => {
+    called = true;
+    return { ok: true };
+  };
+
+  doc.getElementById("checkDownloadedBtn").click();
+  await flush(40);
+
+  assert.equal(called, false, "note.com 以外のページへ依頼しています");
+  assert.equal(doc.getElementById("status").className, "status error");
+});
+
+test("content script が確認できなければ、その理由を出す", async () => {
+  const { win, doc } = await loadPopup();
+  win.chrome.tabs.sendMessage = async () => ({ ok: false, error: "保存先が未設定です。" });
+
+  doc.getElementById("checkDownloadedBtn").click();
+  await flush(40);
+
+  const status = doc.getElementById("status");
+  assert.match(status.textContent, /保存先が未設定/);
+  assert.equal(status.className, "status error");
+});
+
+test("サイドパネルにも確認ボタンがある", async () => {
+  // スクロールして押し直す使い方は、開いたままにできるサイドパネル側が本命
+  const { doc } = await loadSidePanel();
+  assert.ok(doc.getElementById("checkDownloadedBtn"), "サイドパネルにボタンがありません");
+});

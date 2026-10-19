@@ -17,10 +17,13 @@ const PAGE_HTML = `<!doctype html><html><body>
 
 /**
  * content script を読み込んだページ環境を作る。
- * @param {{store?: object, html?: string}} [options={}] - chrome.storage.local の初期値とページHTML。
- * @returns {{win: import("jsdom").DOMWindow, send: Function, downloads: string[]}} テスト環境。
+ * @param {{store?: object, html?: string, noteStats?: object, downloadedNotes?: object}} [options={}]
+ *   chrome.storage.local の初期値・ページHTML・差し替える依存。
+ *   downloadedNotes は background の listDownloadedNotes の応答。
+ * @returns {{win: import("jsdom").DOMWindow, send: Function, downloads: string[], downloadedQueries: string[][]}}
+ *   テスト環境。downloadedQueries は background へ渡した note_id の記録。
  */
-const loadContentScript = ({ store = {}, html = PAGE_HTML, noteStats } = {}) => {
+const loadContentScript = ({ store = {}, html = PAGE_HTML, noteStats, downloadedNotes } = {}) => {
   const dom = new JSDOM(html, {
     url: "https://note.com/hanaviye",
     runScripts: "outside-only",
@@ -32,6 +35,8 @@ const loadContentScript = ({ store = {}, html = PAGE_HTML, noteStats } = {}) => 
     return { width: 100, height: 20, top: 0, left: 0, right: 100, bottom: 20, x: 0, y: 0 };
   };
   const downloads = [];
+  // listDownloadedNotes で background へ渡した note_id を記録する。
+  const downloadedQueries = [];
   let listener = null;
 
   win.chrome = {
@@ -39,6 +44,10 @@ const loadContentScript = ({ store = {}, html = PAGE_HTML, noteStats } = {}) => 
     runtime: {
       id: "test-extension-id",
       sendMessage: async (message) => {
+        if (message.type === "listDownloadedNotes") {
+          downloadedQueries.push(message.noteIds);
+          return downloadedNotes ?? { ok: true, found: {}, unreadable: [], configured: 1 };
+        }
         if (message.type === "downloadMarkdownByPreset") {
           downloads.push(message.articleUrl);
           await flush(20);
@@ -107,7 +116,7 @@ const loadContentScript = ({ store = {}, html = PAGE_HTML, noteStats } = {}) => 
       }
     });
 
-  return { win, send, downloads };
+  return { win, send, downloads, downloadedQueries };
 };
 
 const shadowOf = (win) => win.document.getElementById("ntm-ui-root")?.shadowRoot ?? null;
@@ -632,4 +641,120 @@ test("ページ上の変換でも frontmatter のキー設定が効く", async (
     { author: { enabled: false } },
     "保存済みのキー設定が変換へ渡っていません"
   );
+});
+
+
+/* ---------------------- ダウンロード済みの印 ---------------------- */
+
+const marksOf = (win) => [...(shadowOf(win)?.querySelectorAll(".dl-mark") ?? [])];
+
+test("保存済みの記事にだけ印を付ける", async () => {
+  const { win, send } = loadContentScript({
+    downloadedNotes: {
+      ok: true,
+      found: { n111: ["Obsidian"] },
+      unreadable: [],
+      configured: 1,
+    },
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.total, 2, "一覧の記事数が合いません");
+  assert.equal(response.marked, 1, "印を付けた件数が合いません");
+  const marks = marksOf(win);
+  assert.equal(marks.length, 1, "保存していない記事にも印が付いています");
+  assert.match(marks[0].title, /Obsidian/, "保存先フォルダ名が hover に出ていません");
+  assert.equal(win.document.querySelector(".dl-mark"), null, "印がページ本体に露出しています");
+});
+
+test("除外する一覧項目は問い合わせない", async () => {
+  // プロフィール・仕事依頼は記事ではないため、保存先を調べる対象から外す
+  const { send, downloadedQueries } = loadContentScript();
+
+  await send({ type: "showDownloadedMarks" });
+
+  assert.deepEqual([...downloadedQueries[0]].sort(), ["n111", "n222"]);
+});
+
+test("同じ記事への複数のリンクは1回だけ問い合わせ、どちらにも印を付ける", async () => {
+  const html = `<!doctype html><html><body>
+<div class="mx-auto w-full max-w-[var(--size-content)]">
+  <a href="/hanaviye/n/n111">サムネイル</a>
+  <a href="/hanaviye/n/n111">記事1</a>
+</div>
+</body></html>`;
+  const { win, send, downloadedQueries } = loadContentScript({
+    html,
+    downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  // 別レェルの配列は deepEqual が通らないため、広げてから比べる。
+  assert.deepEqual([...downloadedQueries[0]], ["n111"], "同じ記事を重複して問い合わせています");
+  assert.equal(response.total, 1, "記事数が重複して数えられています");
+  assert.equal(marksOf(win).length, 2, "両方のリンクに印が付いていません");
+});
+
+test("押し直すと印を引き直す", async () => {
+  // 1件保存済みの状態で確認し、そのあとファイルが消えた場合を作る
+  let answer = { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 };
+  const { win, send } = loadContentScript({
+    downloadedNotes: new Proxy({}, { get: (_t, key) => answer[key] }),
+  });
+
+  await send({ type: "showDownloadedMarks" });
+  assert.equal(marksOf(win).length, 1);
+
+  answer = { ok: true, found: {}, unreadable: [], configured: 1 };
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.marked, 0);
+  assert.equal(marksOf(win).length, 0, "前回の印が残っています");
+});
+
+test("保存先フォルダが未設定なら印を付けずに知らせる", async () => {
+  const { win, send } = loadContentScript({
+    downloadedNotes: { ok: true, found: {}, unreadable: [], configured: 0 },
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.ok, false);
+  assert.match(response.error, /フォルダ/);
+  assert.equal(marksOf(win).length, 0);
+});
+
+test("記事一覧でないページでは印を付けずに知らせる", async () => {
+  const { send } = loadContentScript({
+    html: '<!doctype html><html><body><p>記事リンクなし</p></body></html>',
+  });
+
+  const response = await send({ type: "showDownloadedMarks" });
+
+  assert.equal(response.ok, false);
+  assert.match(response.error, /記事リンク/);
+});
+
+test("他の拡張機能からの確認依頼は処理しない", async () => {
+  const { send } = loadContentScript();
+  const response = await send({ type: "showDownloadedMarks" }, { id: "other-extension-id" });
+  assert.equal(response, undefined);
+});
+
+test("消えたリンクの印はスクロール時に片付ける", async () => {
+  // note 側の再描画でカードが入れ替わると、印だけが画面に取り残される
+  const { win, send } = loadContentScript({
+    downloadedNotes: { ok: true, found: { n111: ["Obsidian"] }, unreadable: [], configured: 1 },
+  });
+  await send({ type: "showDownloadedMarks" });
+  assert.equal(marksOf(win).length, 1);
+
+  win.document.querySelector('a[href="/hanaviye/n/n111"]').remove();
+  win.dispatchEvent(new win.Event("scroll"));
+  await flush(40);
+
+  assert.equal(marksOf(win).length, 0, "消えた記事の印が残っています");
 });
