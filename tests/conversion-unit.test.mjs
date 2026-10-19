@@ -567,3 +567,46 @@ test("変換した直後のファイルを更新しても、frontmatter が変�
 
   assert.equal(rebuilt, converted.markdown, "変換直後のファイルが更新で書き換わっています");
 });
+
+
+/* ---------------------------- 一覧ページの判定 ---------------------------- */
+
+test("一覧ページの持ち主を URL から判定する", () => {
+  const { NoteToMarkdown } = createLibWindow();
+  /*
+   * ダウンロード済みの印を出す画面を決める判定。実ページで測った各画面を固定する。
+   * 記事ページを通すと、本文の埋め込みカードと末尾のおすすめ欄（実測43件・
+   * 著者以外5名以上）が一覧とみなされてしまう。
+   */
+  const cases = [
+    ["https://note.com/hanaviye", "hanaviye"],
+    ["https://note.com/hanaviye/all", "hanaviye"],
+    ["https://note.com/hanaviye/m/mfdf8198c41ab", "hanaviye"],
+    ["https://note.com/hanaviye/n/n2c4a89eb7a8a", ""],
+    ["https://note.com/hanaviye/n/n2c4a89eb7a8a?magazine_key=m1", ""],
+    ["https://note.com/", ""],
+    ["https://note.com", ""],
+    ["https://example.com/hanaviye", ""],
+    ["note.com/hanaviye", ""],
+    ["", ""],
+  ];
+
+  cases.forEach(([url, expected]) => {
+    assert.equal(
+      NoteToMarkdown.listCreatorFromUrl(url),
+      expected,
+      `${url} の判定が想定と違います`
+    );
+  });
+});
+
+test("検索やハッシュタグは1段目が記事の持ち主にならない", () => {
+  const { NoteToMarkdown } = createLibWindow();
+  // note 側の予約パスを並べて持たずに済ませている。後段の突き合わせで外れる
+  assert.equal(NoteToMarkdown.listCreatorFromUrl("https://note.com/search?q=markdown"), "search");
+  assert.equal(NoteToMarkdown.listCreatorFromUrl("https://note.com/tag/個人開発"), "tag");
+  assert.equal(
+    NoteToMarkdown.listCreatorFromUrl("https://note.com/sitesettings/stats"),
+    "sitesettings"
+  );
+});

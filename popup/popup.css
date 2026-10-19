@@ -234,6 +234,11 @@ body {
   align-items: center;
 }
 
+/* いまの画面で使えない機能のボタン。disabled にしないのは、
+   ホブー時に理由（title）を読めるようにするため。 */
+.settings-button.is-unavailable { opacity: 0.4; }
+.settings-button.is-unavailable:hover { opacity: 0.55; }
+
 .pick-url-button {
   flex: none;
   width: auto;

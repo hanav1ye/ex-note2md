@@ -456,24 +456,12 @@ const clearDownloadedMarks = () => {
 };
 
 /**
- * 1人のクリエイターの記事一覧ページなら、その持ち主の urlname を返す。
+ * このページが記事一覧なら、その持ち主の urlname を返す。
  *
- * ダウンロード済みの印は自分の記事の管理に使うものなので、
- * 「1人のクリエイターの記事が並んでいる画面」に限る。
- * トップ・検索結果・ハッシュタグは1段目が記事の持ち主にならないため外れる。
- *
- * 記事ページ（`/{urlname}/n/{id}`）は明示的に外す。1段目は著者の urlname に
- * なるが、本文の埋め込みカードと末尾のおすすめ欄に同じ著者の記事が並ぶため、
- * 外さないと記事を読んでいる最中に反応してしまう。
+ * 判定は popup / サイドパネルの可否表示と共有する（lib/noteToMarkdown.js）。
  * @returns {string} クリエイターの urlname。一覧ページでなければ空文字。
  */
-const getListCreator = () => {
-  const segments = location.pathname.split("/").filter(Boolean);
-  if (segments.length === 0 || segments[1] === "n") {
-    return "";
-  }
-  return segments[0];
-};
+const getListCreator = () => NoteToMarkdown.listCreatorFromUrl(location.href);
 
 /**
  * 一覧に描画されている記事のうち、保存済みのものへ印を付ける。

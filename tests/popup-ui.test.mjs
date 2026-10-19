@@ -416,7 +416,9 @@ test("サイドパネルは読み込み途中のタブ更新では取り直さ�
 
   win.chrome.tabs.__onUpdated.forEach((fn) => fn(1, { status: "complete" }, { active: true }));
   await flush(40);
-  assert.equal(queries, 1);
+  // 1回の取り直しで何度タブを引くかは実装の都合（タイトルと確認ボタンの可否で別々に引く）。
+  // ここで見たいのは「取り直さないタイミングで引かないこと」なので、回数は決め打ちしない。
+  assert.ok(queries >= 1, "アクティブなタブの読み込み完了で取り直していません");
 });
 
 test("popup はタブの変化を購読しない", async () => {
@@ -623,4 +625,95 @@ test("サイドパネルにも確認ボタンがある", async () => {
   // スクロールして押し直す使い方は、開いたままにできるサイドパネル側が本命
   const { doc } = await loadSidePanel();
   assert.ok(doc.getElementById("checkDownloadedBtn"), "サイドパネルにボタンがありません");
+});
+
+
+/* ------------------ 確認ボタンの説明（マウスオーバー） ------------------ */
+
+/**
+ * 指定のタブと設定で popup を開き、確認ボタンの説明を返す。
+ * @param {string} url - アクティブなタブのURL。
+ * @param {object} [store={}] - chrome.storage.local の初期値。
+ * @returns {Promise<{title: string, unavailable: boolean}>} 説明と見た目の状態。
+ */
+const downloadedCheckTooltip = async (url, store = {}) => {
+  const dom = new JSDOM(readSource("popup", "popup.html"), {
+    runScripts: "outside-only",
+    url: "https://example.org/",
+  });
+  const win = dom.window;
+  const { chrome } = createChromeStub(store, {});
+  chrome.tabs.query = async () => [{ id: 1, url, title: "テスト" }];
+  win.chrome = chrome;
+  win.eval(readSource("lib", "i18n.js"));
+  win.eval(readSource("lib", "frontmatterKeys.js"));
+  win.eval(readSource("lib", "conversionOptions.js"));
+  win.eval(readSource("lib", "noteToMarkdown.js"));
+  win.eval(readSource("lib", "convertPanel.js"));
+  await flush(60);
+
+  const button = win.document.getElementById("checkDownloadedBtn");
+  return { title: button.title, unavailable: button.classList.contains("is-unavailable") };
+};
+
+test("自分の一覧を開いているときは、機能の説明を出す", async () => {
+  const { title, unavailable } = await downloadedCheckTooltip("https://note.com/hanaviye", {
+    ownUrlname: "hanaviye",
+  });
+
+  assert.match(title, /印/);
+  assert.equal(unavailable, false);
+});
+
+test("記事ページでは「当画面でこの機能は利用できません。」と出す", async () => {
+  const { title, unavailable } = await downloadedCheckTooltip(
+    "https://note.com/hanaviye/n/n2c4a89eb7a8a",
+    { ownUrlname: "hanaviye" }
+  );
+
+  assert.equal(title, "当画面でこの機能は利用できません。");
+  assert.equal(unavailable, true);
+});
+
+test("他のクリエイターの一覧でも利用できない旨を出す", async () => {
+  const { title } = await downloadedCheckTooltip("https://note.com/hebodan", {
+    ownUrlname: "hanaviye",
+  });
+
+  assert.equal(title, "当画面でこの機能は利用できません。");
+});
+
+test("note.com 以外のページでも利用できない旨を出す", async () => {
+  const { title } = await downloadedCheckTooltip("https://example.com/", {
+    ownUrlname: "hanaviye",
+  });
+
+  assert.equal(title, "当画面でこの機能は利用できません。");
+});
+
+test("自分の note ID が未登録なら、画面のせいにせず設定を案内する", async () => {
+  // 「当画面では使えない」と出すと、設定すれば使えることが伝わらない
+  const { title, unavailable } = await downloadedCheckTooltip("https://note.com/hanaviye", {});
+
+  assert.match(title, /自分の note ID/);
+  assert.equal(unavailable, true);
+});
+
+test("ボタンは disabled にしない（説明が読めなくなるため）", async () => {
+  const dom = new JSDOM(readSource("popup", "popup.html"), {
+    runScripts: "outside-only",
+    url: "https://example.org/",
+  });
+  const win = dom.window;
+  const { chrome } = createChromeStub({}, {});
+  chrome.tabs.query = async () => [{ id: 1, url: "https://example.com/", title: "別" }];
+  win.chrome = chrome;
+  win.eval(readSource("lib", "i18n.js"));
+  win.eval(readSource("lib", "frontmatterKeys.js"));
+  win.eval(readSource("lib", "conversionOptions.js"));
+  win.eval(readSource("lib", "noteToMarkdown.js"));
+  win.eval(readSource("lib", "convertPanel.js"));
+  await flush(60);
+
+  assert.equal(win.document.getElementById("checkDownloadedBtn").disabled, false);
 });

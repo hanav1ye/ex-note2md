@@ -82,7 +82,13 @@ const loadContentScript = ({
     },
   };
 
+  /*
+   * 一覧ページの判定（listCreatorFromUrl）は印を出す画面を決める要なので、
+   * スタブの写しではなく実物を使う。変換系だけを上から差し替える。
+   */
+  win.eval(readSource("lib", "noteToMarkdown.js"));
   win.NoteToMarkdown = {
+    ...win.NoteToMarkdown,
     isNoteArticleUrl: (url, base) => {
       try {
         const parsed = new win.URL(url, base);
