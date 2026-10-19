@@ -567,3 +567,46 @@ test("変換した直後のファイルを更新しても、frontmatter が変�
 
   assert.equal(rebuilt, converted.markdown, "変換直後のファイルが更新で書き換わっています");
 });
+
+
+/* ---------------------------- 一覧ページの判定 ---------------------------- */
+
+test("URL の1段目を返し、記事ページとトップは外す", () => {
+  /*
+   * この関数は「一覧かどうか」までは決めない。返した名前が自分の note ID と
+   * 一致するかを、呼び出し元がセッション由来の ID と見比べて判定する。
+   * そのため note 側の予約パス（search / tag など）をここで数え上げない。
+   *
+   * 記事ページだけは例外で外す。著者の urlname は自分の ID と一致してしまうが、
+   * 本文の埋め込みカードと末尾のおすすめ欄に記事が並ぶため（実測42件）。
+   */
+  const { NoteToMarkdown } = createLibWindow();
+  const cases = [
+    // 自分の ID 配下なら、形を問わず名前を返す。
+    ["https://note.com/hanaviye", "hanaviye"],
+    ["https://note.com/hanaviye/", "hanaviye"],
+    ["https://note.com/hanaviye?f=new", "hanaviye"],
+    ["https://note.com/hanaviye/all", "hanaviye"],
+    ["https://note.com/hanaviye/m/mfdf8198c41ab", "hanaviye"],
+    // 呼び出し元で ID と比べて外れるもの。
+    ["https://note.com/search?q=markdown", "search"],
+    ["https://note.com/tag/個人開発", "tag"],
+    ["https://note.com/sitesettings/stats", "sitesettings"],
+    // ここで外すもの。
+    ["https://note.com/hanaviye/n/n2c4a89eb7a8a", ""],
+    ["https://note.com/hanaviye/n/n2c4a89eb7a8a?magazine_key=m1", ""],
+    ["https://note.com/", ""],
+    ["https://note.com", ""],
+    ["https://example.com/hanaviye", ""],
+    ["note.com/hanaviye", ""],
+    ["", ""],
+  ];
+
+  cases.forEach(([url, expected]) => {
+    assert.equal(
+      NoteToMarkdown.listCreatorFromUrl(url),
+      expected,
+      `${url} の判定が想定と違います`
+    );
+  });
+});

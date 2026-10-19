@@ -416,7 +416,9 @@ test("サイドパネルは読み込み途中のタブ更新では取り直さ�
 
   win.chrome.tabs.__onUpdated.forEach((fn) => fn(1, { status: "complete" }, { active: true }));
   await flush(40);
-  assert.equal(queries, 1);
+  // 1回の取り直しで何度タブを引くかは実装の都合（タイトルと確認ボタンの可否で別々に引く）。
+  // ここで見たいのは「取り直さないタイミングで引かないこと」なので、回数は決め打ちしない。
+  assert.ok(queries >= 1, "アクティブなタブの読み込み完了で取り直していません");
 });
 
 test("popup はタブの変化を購読しない", async () => {
@@ -545,4 +547,177 @@ test("変換時にも frontmatter のキー設定が効く", async () => {
   assert.match(copied, /^published_at: 2026-06-04T19:19:18$/m, "改名が変換に反映されていません");
   assert.doesNotMatch(copied, /^published:/m);
   assert.doesNotMatch(copied, /^author:/m, "出力しない設定が変換に反映されていません");
+});
+
+
+/* --------------------- ダウンロード済みの確認ボタン --------------------- */
+
+test("ボタンを押すと一覧へ印を付けるよう依頼し、件数を知らせる", async () => {
+  const { win, doc } = await loadPopup();
+  const sent = [];
+  win.chrome.tabs.sendMessage = async (tabId, message) => {
+    sent.push(message);
+    return { ok: true, total: 12, marked: 5, unreadable: [] };
+  };
+
+  doc.getElementById("checkDownloadedBtn").click();
+  await flush(40);
+
+  assert.deepEqual(
+    sent.map((message) => message.type),
+    ["showDownloadedMarks"]
+  );
+  assert.match(doc.getElementById("status").textContent, /12/);
+  assert.match(doc.getElementById("status").textContent, /5/);
+  assert.equal(doc.getElementById("status").className, "status ok");
+});
+
+test("確認できなかったフォルダがあるときは必ず知らせる", async () => {
+  /*
+   * 印が無いことを「未保存」と読まれると、落とし忘れに気付けないまま終わる。
+   * 件数だけ出して黙るのは避ける。
+   */
+  const { win, doc } = await loadPopup();
+  win.chrome.tabs.sendMessage = async () => ({
+    ok: true,
+    total: 12,
+    marked: 5,
+    unreadable: ["別のフォルダ"],
+  });
+
+  doc.getElementById("checkDownloadedBtn").click();
+  await flush(40);
+
+  const status = doc.getElementById("status");
+  assert.match(status.textContent, /別のフォルダ/);
+  assert.equal(status.className, "status skip", "注意として扱われていません");
+});
+
+test("note.com 以外のタブでは押しても何も依頼しない", async () => {
+  const { win, doc } = await loadPopup();
+  win.chrome.tabs.query = async () => [{ id: 1, url: "https://example.com/", title: "別のページ" }];
+  let called = false;
+  win.chrome.tabs.sendMessage = async () => {
+    called = true;
+    return { ok: true };
+  };
+
+  doc.getElementById("checkDownloadedBtn").click();
+  await flush(40);
+
+  assert.equal(called, false, "note.com 以外のページへ依頼しています");
+  assert.equal(doc.getElementById("status").className, "status error");
+});
+
+test("content script が確認できなければ、その理由を出す", async () => {
+  const { win, doc } = await loadPopup();
+  win.chrome.tabs.sendMessage = async () => ({ ok: false, error: "保存先が未設定です。" });
+
+  doc.getElementById("checkDownloadedBtn").click();
+  await flush(40);
+
+  const status = doc.getElementById("status");
+  assert.match(status.textContent, /保存先が未設定/);
+  assert.equal(status.className, "status error");
+});
+
+test("サイドパネルにも確認ボタンがある", async () => {
+  // スクロールして押し直す使い方は、開いたままにできるサイドパネル側が本命
+  const { doc } = await loadSidePanel();
+  assert.ok(doc.getElementById("checkDownloadedBtn"), "サイドパネルにボタンがありません");
+});
+
+
+/* ------------------ 確認ボタンの説明（マウスオーバー） ------------------ */
+
+/**
+ * 指定のタブと設定で popup を開き、確認ボタンの説明を返す。
+ * @param {string} url - アクティブなタブのURL。
+ * @param {object} [store={}] - chrome.storage.local の初期値。
+ * @returns {Promise<{title: string, unavailable: boolean}>} 説明と見た目の状態。
+ */
+const downloadedCheckTooltip = async (url, store = {}) => {
+  const dom = new JSDOM(readSource("popup", "popup.html"), {
+    runScripts: "outside-only",
+    url: "https://example.org/",
+  });
+  const win = dom.window;
+  const { chrome } = createChromeStub(store, {});
+  chrome.tabs.query = async () => [{ id: 1, url, title: "テスト" }];
+  win.chrome = chrome;
+  win.eval(readSource("lib", "i18n.js"));
+  win.eval(readSource("lib", "frontmatterKeys.js"));
+  win.eval(readSource("lib", "conversionOptions.js"));
+  win.eval(readSource("lib", "noteToMarkdown.js"));
+  win.eval(readSource("lib", "convertPanel.js"));
+  await flush(60);
+
+  const button = win.document.getElementById("checkDownloadedBtn");
+  return { title: button.title, unavailable: button.classList.contains("is-unavailable") };
+};
+
+test("自分の一覧を開いているときは、機能の説明を出す", async () => {
+  const { title, unavailable } = await downloadedCheckTooltip("https://note.com/hanaviye", {
+    verifiedOwnUrlname: "hanaviye",
+  });
+
+  assert.match(title, /印/);
+  assert.equal(unavailable, false);
+});
+
+test("記事ページでは「当画面でこの機能は利用できません。」と出す", async () => {
+  const { title, unavailable } = await downloadedCheckTooltip(
+    "https://note.com/hanaviye/n/n2c4a89eb7a8a",
+    { verifiedOwnUrlname: "hanaviye" }
+  );
+
+  assert.equal(title, "当画面でこの機能は利用できません。");
+  assert.equal(unavailable, true);
+});
+
+test("確かめた持ち主と違う一覧では、利用できない旨を出す", async () => {
+  // 一度でも自分の一覧で確かめていれば、押す前に分かる
+  const { title } = await downloadedCheckTooltip("https://note.com/hebodan", {
+    verifiedOwnUrlname: "hanaviye",
+  });
+
+  assert.equal(title, "当画面でこの機能は利用できません。");
+});
+
+test("note.com 以外のページでも利用できない旨を出す", async () => {
+  const { title } = await downloadedCheckTooltip("https://example.com/", {
+    verifiedOwnUrlname: "hanaviye",
+  });
+
+  assert.equal(title, "当画面でこの機能は利用できません。");
+});
+
+test("持ち主を確かめる前は、使えるものとして説明を出す", async () => {
+  /*
+   * 持ち主の判定はセッションで note に確かめるため、押すまで分からない。
+   * 一度確かめるまでは通し、押したときに content script が理由を返す。
+   */
+  const { title, unavailable } = await downloadedCheckTooltip("https://note.com/hebodan", {});
+
+  assert.match(title, /印/);
+  assert.equal(unavailable, false);
+});
+
+test("ボタンは disabled にしない（説明が読めなくなるため）", async () => {
+  const dom = new JSDOM(readSource("popup", "popup.html"), {
+    runScripts: "outside-only",
+    url: "https://example.org/",
+  });
+  const win = dom.window;
+  const { chrome } = createChromeStub({}, {});
+  chrome.tabs.query = async () => [{ id: 1, url: "https://example.com/", title: "別" }];
+  win.chrome = chrome;
+  win.eval(readSource("lib", "i18n.js"));
+  win.eval(readSource("lib", "frontmatterKeys.js"));
+  win.eval(readSource("lib", "conversionOptions.js"));
+  win.eval(readSource("lib", "noteToMarkdown.js"));
+  win.eval(readSource("lib", "convertPanel.js"));
+  await flush(60);
+
+  assert.equal(win.document.getElementById("checkDownloadedBtn").disabled, false);
 });

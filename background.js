@@ -234,6 +234,107 @@ const noteFileExists = async (directoryHandle, filename) => {
 };
 
 /**
+ * 保存先フォルダへ同時に投げる問い合わせ数。
+ * 一覧をスクロールし続けると記事が数百件まで積み上がるため、1件ずつ待たない。
+ */
+const LOOKUP_CONCURRENCY = 8;
+
+/**
+ * 件数に上限を設けて非同期処理を流す。
+ * @param {any[]} items - 処理対象。
+ * @param {number} limit - 同時実行数。
+ * @param {(item: any) => Promise<void>} task - 1件あたりの処理。
+ * @returns {Promise<void>} すべて終わったら解決する。
+ */
+const mapWithLimit = async (items, limit, task) => {
+  const queue = [...items];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length > 0) {
+      await task(queue.shift());
+    }
+  });
+  await Promise.all(workers);
+};
+
+/**
+ * 指定された note_id が、保存先フォルダに .md として存在するかを調べる。
+ *
+ * フォルダを列挙せず、ファイル名で1件ずつ引く。保存先にノート全体のフォルダ
+ * （Obsidian の vault など）を指定されていても件数に左右されないほか、
+ * 利用者の他のファイル名を一切読まずに済む。
+ *
+ * ファイルの中身は開かない。保存時のファイル名が `{note_id}.md` である前提で、
+ * 名前だけで突き合わせる（保存後に手で改名されたファイルは「未」と出る）。
+ * @param {string[]} noteIds - 調べたい note_id。
+ * @returns {Promise<{found: Record<string, string[]>, unreadable: string[], configured: number}>}
+ *   found は note_id ごとの保存先表示名、unreadable は権限が無く調べられなかった保存先、
+ *   configured はフォルダを設定済みの保存先の数。
+ */
+const listDownloadedNotes = async (noteIds) => {
+  const stored = await chrome.storage.local.get(["presetConfigs"]);
+  const presetConfigs = sanitizePresetConfigs(stored.presetConfigs);
+
+  /*
+   * 受け取った値をそのままキーに使う。sanitizeFileBaseName は実際の note_id では
+   * 何も変えないが、変換された場合に呼び出し側が引けなくなるため分けて持つ。
+   */
+  const requested = new Map();
+  (Array.isArray(noteIds) ? noteIds : []).forEach((raw) => {
+    const noteId = String(raw ?? "").trim();
+    if (!noteId || requested.has(noteId)) {
+      return;
+    }
+    const base = sanitizeFileBaseName(noteId);
+    if (base === "note-article") {
+      return;
+    }
+    requested.set(noteId, `${base}.md`);
+  });
+
+  const found = {};
+  const unreadable = [];
+  let configured = 0;
+
+  for (const presetId of PRESET_IDS) {
+    const config = presetConfigs[presetId];
+    if (!config.hasFolder) {
+      continue;
+    }
+    configured += 1;
+    const label = presetDisplayName(presetId, config);
+
+    const handle = await getPresetHandle(presetId);
+    if (!handle) {
+      unreadable.push(label);
+      continue;
+    }
+    // 読むだけなので read で問う（保存用に readwrite を許可済みなら granted になる）。
+    const permission = await handle.queryPermission({ mode: "read" });
+    if (permission !== "granted") {
+      unreadable.push(label);
+      continue;
+    }
+
+    try {
+      await mapWithLimit([...requested], LOOKUP_CONCURRENCY, async ([noteId, filename]) => {
+        if (await noteFileExists(handle, filename)) {
+          found[noteId] = [...(found[noteId] ?? []), label];
+        }
+      });
+    } catch {
+      /*
+       * 途中で読めなくなった場合（確認中に権限を失ったなど）。
+       * そこまでに見つかった分は返しつつ、このフォルダは確認できなかった扱いにする。
+       * 1つの保存先の失敗で、他の保存先の結果まで捨てない。
+       */
+      unreadable.push(label);
+    }
+  }
+
+  return { found, unreadable, configured };
+};
+
+/**
  * Markdown をプリセットフォルダへ保存する。
  * 同名ファイルが存在する場合は上書きする。
  * @param {{markdown: string, articleUrl: string, downloadPreset: string}} params - 保存パラメータ。
@@ -409,6 +510,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, ...result });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : t("error.downloadFailed");
+        sendResponse({ ok: false, error: errorMessage });
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "listDownloadedNotes") {
+    void (async () => {
+      await NtmI18n.reload();
+      try {
+        const result = await listDownloadedNotes(message.noteIds ?? []);
+        sendResponse({ ok: true, ...result });
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : t("error.downloadedCheckFailed");
         sendResponse({ ok: false, error: errorMessage });
       }
     })();

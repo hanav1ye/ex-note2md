@@ -30,6 +30,17 @@ let pageToastTimer = null;
 let uiHostEl = null;
 let uiShadowRoot = null;
 
+/** 表示中のダウンロード済みの印。{anchor, el} の組を位置の付け直しのために持つ。 */
+let downloadedMarks = [];
+/*
+ * ログイン中のアカウントの記事 ID と note ID（urlname）。
+ * ページを開いている間だけ覚えておく。スクロールして押し直すたびに
+ * ダッシュボードへ問い合わせないため。
+ */
+let ownIdentityCache = null;
+let downloadedReflowHandle = 0;
+let downloadedReflowBound = false;
+
 const UI_HOST_ID = "ntm-ui-root";
 
 // note.com 側の CSS の影響を受けないよう、UI は Shadow DOM 内に閉じる。
@@ -100,6 +111,30 @@ const UI_STYLES = `
   .panel button.danger { border-color: #e3a7b1; color: #8e3c4d; }
   .panel button:disabled { opacity: 0.5; cursor: default; }
   .panel-hint { font-size: 10px; color: #a08292; }
+
+  /*
+   * ダウンロード済みの印。note 側の DOM には触らず、この Shadow DOM の中へ
+   * 記事リンクの位置に重ねて置く（React の再描画で消えないようにするため）。
+   */
+  .dl-mark {
+    position: fixed;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    border: 2px solid #fff;
+    background: #2f9e6e;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: 0 2px 6px rgba(29, 71, 56, 0.35);
+    pointer-events: auto;
+    cursor: default;
+  }
+  .dl-mark.is-offscreen { display: none; }
 `;
 
 /**
@@ -349,6 +384,270 @@ const addVisibleArticlesToSelection = () => {
 
   renderMultiPanel();
   showPageToast(t("content.toast.addedFromList", { count: addedCount }), "ok");
+};
+
+/* --------------------------- ダウンロード済みの印 -------------------------- */
+
+/**
+ * 印を記事リンクの左上へ合わせる。
+ *
+ * 画面座標で置いているため、スクロールや再描画のたびに測り直す。
+ * 消えたリンク（note 側が描き替えた分）の印はここで片付ける。
+ */
+const positionDownloadedMarks = () => {
+  downloadedMarks = downloadedMarks.filter(({ anchor, el }) => {
+    // 印そのものが外れている場合（UI ホストごと消された場合）も片付ける。
+    if (!anchor.isConnected || !el.isConnected) {
+      el.remove();
+      return false;
+    }
+    const rect = anchor.getBoundingClientRect();
+    const offscreen =
+      rect.width === 0 ||
+      rect.height === 0 ||
+      rect.bottom < 0 ||
+      rect.top > window.innerHeight ||
+      rect.right < 0 ||
+      rect.left > window.innerWidth;
+    el.classList.toggle("is-offscreen", offscreen);
+    if (!offscreen) {
+      el.style.top = `${rect.top + 6}px`;
+      el.style.left = `${rect.left + 6}px`;
+    }
+    return true;
+  });
+
+  if (downloadedMarks.length === 0) {
+    unbindDownloadedMarkReflow();
+  }
+};
+
+/** スクロール・リサイズでの位置の付け直しを1フレームにまとめる。 */
+const scheduleDownloadedMarkReflow = () => {
+  if (downloadedReflowHandle) {
+    return;
+  }
+  downloadedReflowHandle = requestAnimationFrame(() => {
+    downloadedReflowHandle = 0;
+    positionDownloadedMarks();
+  });
+};
+
+/** 印を表示している間だけ、位置の付け直しを購読する。 */
+const bindDownloadedMarkReflow = () => {
+  if (downloadedReflowBound) {
+    return;
+  }
+  // scroll は冒険せず capture で拾う（一覧が内側の要素でスクロールする場合がある）。
+  window.addEventListener("scroll", scheduleDownloadedMarkReflow, { passive: true, capture: true });
+  window.addEventListener("resize", scheduleDownloadedMarkReflow, { passive: true });
+  downloadedReflowBound = true;
+};
+
+/** 位置の付け直しの購読を解除する。 */
+const unbindDownloadedMarkReflow = () => {
+  if (!downloadedReflowBound) {
+    return;
+  }
+  window.removeEventListener("scroll", scheduleDownloadedMarkReflow, { capture: true });
+  window.removeEventListener("resize", scheduleDownloadedMarkReflow);
+  downloadedReflowBound = false;
+};
+
+/** 表示中の印をすべて消す。 */
+const clearDownloadedMarks = () => {
+  downloadedMarks.forEach(({ el }) => el.remove());
+  downloadedMarks = [];
+  unbindDownloadedMarkReflow();
+};
+
+/**
+ * このページが記事一覧なら、その持ち主の urlname を返す。
+ *
+ * 判定は popup / サイドパネルの可否表示と共有する（lib/noteToMarkdown.js）。
+ * @returns {string} クリエイターの urlname。一覧ページでなければ空文字。
+ */
+const getListCreator = () => NoteToMarkdown.listCreatorFromUrl(location.href);
+
+/**
+ * ログイン中のアカウント自身の記事 ID を、note のダッシュボードから取る。
+ *
+ * ダッシュボードは利用者自身の記事しか返さないため、ここで得た集合が
+ * 「自分の記事かどうか」の担保になる。トークンには urlname が入っていないので、
+ * 名前で突き合わせるのではなく、記事 ID の集合で判定する。
+ *
+ * 同じページで押し直すたびに取り直さないよう、ページを開いている間は覚えておく。
+ * 新しく書いた記事は、ページを再読み込みすれば入ってくる。
+ * @returns {Promise<{ok: true, ids: Set<string>}|{ok: false, error: string}>} 記事IDの集合。
+ */
+const getOwnIdentity = async () => {
+  if (ownIdentityCache) {
+    return { ok: true, ...ownIdentityCache };
+  }
+
+  let result = null;
+  try {
+    result = await NtmNoteStats.fetchAllStats();
+  } catch (error) {
+    // instanceof Error はレルムをまたぐと偽になるため message を直接見る。
+    const reason = String(error?.message ?? "");
+    return {
+      ok: false,
+      error: reason === "unauthenticated" ? t("stats.error.notLoggedIn") : t("stats.error.fetchFailed"),
+    };
+  }
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      error:
+        result.code === "not-logged-in"
+          ? t("stats.error.notLoggedIn")
+          : t("stats.error.tokenUnavailable"),
+    };
+  }
+
+  const ids = new Set(
+    result.rows.map((row) => String(row?.noteId ?? "").trim()).filter(Boolean)
+  );
+
+  /*
+   * 自分の記事が1件でもあれば、その1件から自分の note ID を引く。
+   * これで URL の1段目と見比べられるようになり、どのページでも
+   * 「自分の一覧かどうか」を名前で判定できる。
+   */
+  const [firstId] = ids;
+  const urlname = firstId ? await NtmNoteStats.fetchOwnUrlname(firstId) : "";
+
+  if (urlname) {
+    /*
+     * popup / サイドパネルが、ボタンを押す前の可否表示に使う。
+     * 入力ではなくセッションから取った名前なので、ここで保存する。
+     */
+    try {
+      await chrome.storage.local.set({ verifiedOwnUrlname: urlname });
+    } catch {
+      // 控えられなくても、この実行自体には影響しない
+    }
+  }
+
+  ownIdentityCache = { ids, urlname };
+  return { ok: true, ...ownIdentityCache };
+};
+
+/**
+ * 一覧に描画されている記事のうち、保存済みのものへ印を付ける。
+ *
+ * 判定は background（保存先フォルダを見られるのは Service Worker 側）に任せ、
+ * ここは画面に出ている記事の note_id を渡して、返ってきた分を描くだけ。
+ * @returns {Promise<{ok: boolean, total?: number, marked?: number, unreadable?: string[], error?: string}>}
+ *   total は一覧で見つかった記事数、marked は印を付けた数。
+ */
+const showDownloadedMarks = async () => {
+  // 記事一覧の画面でなければ、ここで終わる（保存先フォルダには触れない）。
+  const creator = getListCreator();
+  if (!creator) {
+    return { ok: false, error: t("content.error.notArticleList") };
+  }
+
+  /*
+   * 先に、この一覧の持ち主の記事リンクだけに絞る。
+   *
+   * 記事リンクが1件もなければ、そもそも一覧ではない。`note.com/search` なら
+   * `/search/n/...` というリンクは無いのでここで 0 件になる。
+   * この安い検査を先に置くことで、関係のない画面でセッションを使った
+   * 問い合わせを起こさずに済ませる。
+   */
+  const onPage = getRenderedArticleCandidates().filter(({ url }) => {
+    try {
+      return new URL(url).pathname.startsWith(`/${creator}/n/`);
+    } catch {
+      return false;
+    }
+  });
+  if (onPage.length === 0) {
+    return { ok: false, error: t("content.error.notArticleList") };
+  }
+
+  /*
+   * 自分が誰なのかを、ログイン中のセッションで note 自身に確かめる。
+   * ダッシュボードが返すのは利用者自身の記事だけなので、これが担保になる。
+   * 利用者に自分の note ID を入力させる方式は採らない（自己申告になるため）。
+   */
+  const owned = await getOwnIdentity();
+  if (!owned.ok) {
+    return { ok: false, error: owned.error };
+  }
+
+  /*
+   * 自分の note ID が分かっているので、URL の1段目と見比べる。
+   * これで `/search` のような note 側の画面も、他人の一覧も名前で外れる。
+   */
+  if (owned.urlname && creator.toLowerCase() !== owned.urlname) {
+    return { ok: false, error: t("content.error.notOwnList", { urlname: owned.urlname }) };
+  }
+
+  /*
+   * 同じ記事へのリンクが複数あることがあるため、問い合わせは note_id で重複を除く。
+   * 自分の記事でないものは、保存先へ問い合わせる前にここで落とす。
+   */
+  const byNoteId = new Map();
+  onPage.forEach((candidate) => {
+    const noteId = NoteToMarkdown.extractNoteIdFromUrl(candidate.url);
+    if (!noteId || !owned.ids.has(noteId)) {
+      return;
+    }
+    byNoteId.set(noteId, [...(byNoteId.get(noteId) ?? []), candidate.anchor]);
+  });
+
+  if (byNoteId.size === 0) {
+    return { ok: false, error: t("content.error.noOwnOnPage") };
+  }
+
+  const response = await chrome.runtime.sendMessage({
+    type: "listDownloadedNotes",
+    noteIds: [...byNoteId.keys()],
+  });
+  if (!response?.ok) {
+    return { ok: false, error: response?.error ?? t("content.error.downloadedCheckFailed") };
+  }
+  if (response.configured === 0) {
+    return { ok: false, error: t("error.presetFolderRequired") };
+  }
+
+  // 押し直しは「付け足し」ではなく引き直し。消えた記事の印を残さないため。
+  clearDownloadedMarks();
+
+  const root = getUiRoot();
+  let marked = 0;
+  byNoteId.forEach((anchors, noteId) => {
+    const folders = response.found?.[noteId];
+    if (!Array.isArray(folders) || folders.length === 0) {
+      return;
+    }
+    marked += 1;
+    anchors.forEach((anchor) => {
+      const mark = document.createElement("span");
+      mark.className = "dl-mark";
+      mark.textContent = "✓";
+      // フォルダ名は一覧を散らかさないよう hover に寄せる。
+      mark.title = t("content.downloaded.markTitle", { folders: folders.join("、") });
+      root.appendChild(mark);
+      downloadedMarks.push({ anchor, el: mark });
+    });
+  });
+
+  if (marked > 0) {
+    bindDownloadedMarkReflow();
+    positionDownloadedMarks();
+  }
+
+  return {
+    ok: true,
+    total: byNoteId.size,
+    marked,
+    unreadable: Array.isArray(response.unreadable) ? response.unreadable : [],
+  };
 };
 
 /** 複数選択パネルをDOMから削除する。 */
@@ -1115,6 +1414,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           code: reason === "unauthenticated" ? "not-logged-in" : "fetch-failed",
           error: reason === "unauthenticated" ? t("stats.error.notLoggedIn") : t("stats.error.fetchFailed"),
         });
+      }
+    })();
+    return true;
+  }
+
+  if (message?.type === "showDownloadedMarks") {
+    void (async () => {
+      await NtmI18n.reload();
+      try {
+        sendResponse(await showDownloadedMarks());
+      } catch (error) {
+        // instanceof Error はレルムをまたぐと偽になるため message を直接見る。
+        const reason = String(error?.message ?? "");
+        sendResponse({ ok: false, error: reason || t("content.error.downloadedCheckFailed") });
       }
     })();
     return true;
